@@ -51,6 +51,8 @@ The Raspberry Pi acts as:
 - Container host (Docker)
 - File sharing server (Samba)
 
+![Homelab Architecture](diagrams/architecture.png)
+
 All services run inside Docker containers except low-level networking components.
 
 No inbound ports are exposed to the public internet.
