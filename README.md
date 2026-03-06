@@ -10,6 +10,7 @@ The system provides:
 - Containerized self-hosted services
 - Centralized DNS filtering
 - Lightweight NAS functionality
+- Infrastructure observability and monitoring
 - Overlay networking without exposing public ports
 
 The goal was to design a secure, minimal, and practical home infrastructure using containerization while avoiding direct internet exposure.
@@ -21,6 +22,7 @@ The goal was to design a secure, minimal, and practical home infrastructure usin
 ### Hardware
 
 - Raspberry Pi 2B (always-on node)
+- NVMe storage (used for container data and persistent volumes)
 
 ### Networking
 
@@ -33,10 +35,15 @@ The goal was to design a secure, minimal, and practical home infrastructure usin
 - Docker (service orchestration)
 - Portainer (container management interface)
 
+### Observability
+
+- Prometheus (metrics collection and time-series database)
+- Node Exporter (host-level metrics from the Raspberry Pi)
+- Grafana (visualization dashboards for infrastructure monitoring)
+
 ### Services
 
 - Pi-hole (DNS filtering and network visibility)
-- Samba (lightweight NAS functionality)
 - 4get scraper (self-hosted privacy-focused search frontend)
 
 ---
@@ -45,11 +52,11 @@ The goal was to design a secure, minimal, and practical home infrastructure usin
 
 The Raspberry Pi acts as:
 
-- Subnet router for local LAN
+- Subnet router for the local LAN
 - Exit node (on-demand full tunnel routing)
 - DNS authority (Pi-hole)
 - Container host (Docker)
-- File sharing server (Samba)
+- Observability node for infrastructure monitoring
 
 ![Homelab Architecture](diagrams/architecture.png)
 
@@ -57,7 +64,35 @@ All services run inside Docker containers except low-level networking components
 
 No inbound ports are exposed to the public internet.
 
-Remote access is achieved exclusively through encrypted overlay networking.
+Remote access is achieved exclusively through encrypted overlay networking via Tailscale.
+
+---
+
+## Observability
+
+The homelab includes a lightweight monitoring stack to observe system health and resource usage.
+
+Metrics pipeline:
+
+Node Exporter  
+↓  
+Prometheus  
+↓  
+Grafana
+
+### Collected Metrics
+
+The monitoring stack provides visibility into:
+
+- CPU utilization
+- Memory usage
+- Disk usage and filesystem metrics
+- Network throughput
+- System load averages
+
+Prometheus periodically scrapes metrics from Node Exporter and stores them as time-series data.
+
+Grafana dashboards are used to visualize system behavior and identify performance bottlenecks on constrained hardware.
 
 ---
 
@@ -65,15 +100,19 @@ Remote access is achieved exclusively through encrypted overlay networking.
 
 ### Normal Operation
 
-Devices connect via Tailscale mesh.
+Devices connect via the Tailscale mesh network.
+
 Traffic remains peer-to-peer when possible.
-DNS queries are routed to Pi-hole.
+
+DNS queries are routed through Pi-hole for filtering and visibility.
 
 ### Restricted Networks (e.g. university Wi-Fi)
 
-Exit node is enabled.
+Exit node functionality is enabled.
+
 All traffic is tunneled through the Raspberry Pi.
-DNS continues to be filtered via Pi-hole.
+
+DNS filtering remains active through Pi-hole.
 
 ---
 
@@ -88,7 +127,10 @@ Instead of exposing services through port forwarding, this architecture:
 - Uses containerization for isolation and portability
 
 Docker ensures services are modular and replaceable.
+
 Portainer simplifies container lifecycle management.
+
+Prometheus and Grafana provide infrastructure visibility for debugging and performance analysis.
 
 ---
 
@@ -113,10 +155,10 @@ Mitigation strategy:
 ## Trade-offs and Limitations
 
 - Raspberry Pi 2B has limited CPU and RAM
+- USB 2.0 bandwidth constraints for external storage
 - Single point of failure
 - Dependent on external VPN control plane
 - Not designed for high-performance workloads
-- No high-availability setup
 
 This environment prioritizes learning and architectural understanding over performance.
 
@@ -126,19 +168,18 @@ This environment prioritizes learning and architectural understanding over perfo
 
 - Overlay networking simplifies secure remote access
 - Containerization improves service modularity
-- DNS centralization increases observability
-- Minimizing exposure is often more effective than adding complexity
-- Exit nodes should be used strategically to avoid unnecessary latency
+- Observability is essential for diagnosing system performance
+- NVMe storage significantly improves Docker workloads compared to SD cards
+- Minimizing external exposure reduces operational risk
 
 ---
 
 ## Future Improvements
 
-- Monitoring stack (Prometheus + Grafana)
-- Hardware upgrade
+- Automated photo backup system using Syncthing
+- Reverse proxy for internal service routing
 - Backup automation for NAS data
-- High-availability DNS
-- Comparative self-hosted control plane implementation
+- Hardware upgrade (Raspberry Pi 4 or mini server)
 - Infrastructure as Code approach for reproducibility
 
 ---
@@ -149,6 +190,7 @@ This project focuses on understanding:
 
 - Overlay networking architecture
 - Container-based service design
+- Infrastructure observability
 - Security-first infrastructure decisions
 - Trade-off analysis in constrained hardware environments
 
