@@ -32,7 +32,7 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 ### Services
 
 - Pi-hole (DNS filtering + query logging)
-- 4get (self-hosted search frontend)
+- [4get](https://git.lolcat.ca/lolcat/4get) (self-hosted search frontend)
 
 ---
 
