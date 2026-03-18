@@ -2,7 +2,7 @@
 
 ## Context
 
-The Raspberry Pi 2B (1GB RAM) was experiencing system instability under load — DNS resolution failures, unresponsive containers, Tailscale disconnections, and eventual full system hangs requiring manual reboot.
+The Raspberry Pi 2B (1GB RAM) was experiencing system instability under load, DNS resolution failures, unresponsive containers, Tailscale disconnections, and eventual full system hangs requiring manual reboot.
 
 ## Root Cause
 
