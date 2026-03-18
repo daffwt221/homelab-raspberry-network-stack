@@ -21,7 +21,7 @@ Monitoring (Grafana) showed:
 - Swap usage reaching ~24%
 - System heavily relying on swap memory
 
-![Grafana Memory Basic Monitoring](./img/grafana_monitor_18-03-2026.png)
+![Grafana Memory Basic Monitoring](../img/grafana_monitor_18-03-2026.png)
 
 System logs confirmed:
 
