@@ -2,196 +2,99 @@
 
 ## Overview
 
-This repository documents my personal homelab architecture built around a Raspberry Pi 2B acting as a permanent infrastructure node.
-
-The system provides:
-
-- Secure remote access to my home LAN
-- Containerized self-hosted services
-- Centralized DNS filtering
-- Lightweight NAS functionality
-- Infrastructure observability and monitoring
-- Overlay networking without exposing public ports
-
-The goal was to design a secure, minimal, and practical home infrastructure using containerization while avoiding direct internet exposure.
+Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. The Pi handles DNS filtering, overlay networking, containerized services, lightweight NAS storage, and infrastructure monitoring — all without exposing any public ports.
 
 ---
 
-## Core Components
+## Stack
 
 ### Hardware
 
-- Raspberry Pi 2B (always-on node)
-- NVMe storage (used for container data and persistent volumes)
+- Raspberry Pi 2B (1GB RAM, always-on)
+- NVMe drive (container volumes and persistent data)
 
 ### Networking
 
-- Tailscale (WireGuard-based overlay VPN)
-- Subnet routing for `192.168.1.0/24`
-- Exit node (used selectively in restricted networks)
+- Tailscale (WireGuard-based mesh VPN)
+- Subnet router for `192.168.1.0/24`
+- Exit node capability for full-tunnel routing
 
-### Containerization
+### Containers
 
-- Docker (service orchestration)
-- Portainer (container management interface)
+- Docker
+- Portainer (management UI)
 
-### Observability
+### Monitoring
 
-- Prometheus (metrics collection and time-series database)
-- Node Exporter (host-level metrics from the Raspberry Pi)
-- Grafana (visualization dashboards for infrastructure monitoring)
+- Prometheus + Node Exporter → Grafana
+- Tracks CPU, memory, disk, network, and load metrics
 
 ### Services
 
-- Pi-hole (DNS filtering and network visibility)
-- 4get scraper (self-hosted privacy-focused search frontend)
+- Pi-hole (DNS filtering + query logging)
+- 4get (self-hosted search frontend)
 
 ---
 
-## Architecture Model
+## Architecture
 
-The Raspberry Pi acts as:
-
-- Subnet router for the local LAN
-- Exit node (on-demand full tunnel routing)
-- DNS authority (Pi-hole)
-- Container host (Docker)
-- Observability node for infrastructure monitoring
+The Pi serves as subnet router, exit node, DNS server (Pi-hole), Docker host, and monitoring node.
 
 ![Homelab Architecture](diagrams/architecture.png)
 
-All services run inside Docker containers except low-level networking components.
-
-No inbound ports are exposed to the public internet.
-
-Remote access is achieved exclusively through encrypted overlay networking via Tailscale.
+All services run as Docker containers. No inbound ports are open. Remote access goes exclusively through Tailscale's encrypted overlay network.
 
 ---
 
-## Observability
+## Monitoring
 
-The homelab includes a lightweight monitoring stack to observe system health and resource usage.
+Metrics pipeline: `Node Exporter → Prometheus → Grafana`
 
-Metrics pipeline:
-
-Node Exporter  
-↓  
-Prometheus  
-↓  
-Grafana
-
-### Collected Metrics
-
-The monitoring stack provides visibility into:
-
-- CPU utilization
-- Memory usage
-- Disk usage and filesystem metrics
-- Network throughput
-- System load averages
-
-Prometheus periodically scrapes metrics from Node Exporter and stores them as time-series data.
-
-Grafana dashboards are used to visualize system behavior and identify performance bottlenecks on constrained hardware.
+Prometheus scrapes host-level metrics from Node Exporter at regular intervals. Grafana provides dashboards for tracking resource usage and identifying bottlenecks on constrained hardware.
 
 ---
 
 ## Network Behavior
 
-### Normal Operation
+**Normal operation:** Devices connect via Tailscale mesh. Traffic is peer-to-peer where possible. DNS queries go through Pi-hole.
 
-Devices connect via the Tailscale mesh network.
-
-Traffic remains peer-to-peer when possible.
-
-DNS queries are routed through Pi-hole for filtering and visibility.
-
-### Restricted Networks (e.g. university Wi-Fi)
-
-Exit node functionality is enabled.
-
-All traffic is tunneled through the Raspberry Pi.
-
-DNS filtering remains active through Pi-hole.
+**Restricted networks (e.g. university Wi-Fi):** Exit node is enabled, routing all traffic through the Pi. DNS filtering stays active.
 
 ---
 
-## Why This Design?
+## Design Rationale
 
-Instead of exposing services through port forwarding, this architecture:
-
-- Avoids public-facing services
-- Reduces attack surface
-- Keeps infrastructure private
-- Centralizes service management
-- Uses containerization for isolation and portability
-
-Docker ensures services are modular and replaceable.
-
-Portainer simplifies container lifecycle management.
-
-Prometheus and Grafana provide infrastructure visibility for debugging and performance analysis.
+No port forwarding, no public-facing services. The overlay VPN handles all remote access, which keeps the attack surface minimal. Docker provides service isolation and portability. Portainer handles container lifecycle. Prometheus + Grafana give visibility into system health.
 
 ---
 
-## Threat Model (Simplified)
+## Threat Model
 
-Primary concerns:
-
-- Automated internet scans
-- Open port exposure
-- Unencrypted traffic on public Wi-Fi
-- DNS-level tracking or malicious domains
-
-Mitigation strategy:
-
-- No public inbound ports
-- Overlay VPN for all remote access
-- Centralized DNS filtering
-- Container isolation
+| Threat | Mitigation |
+|---|---|
+| Automated internet scans | No public inbound ports |
+| Open port exposure | Overlay VPN (Tailscale) for all access |
+| Unencrypted traffic on public Wi-Fi | Exit node + WireGuard encryption |
+| DNS tracking / malicious domains | Pi-hole DNS filtering |
+| Container breakout | Docker isolation + limited permissions |
 
 ---
 
-## Trade-offs and Limitations
+## Limitations
 
-- Raspberry Pi 2B has limited CPU and RAM
-- USB 2.0 bandwidth constraints for external storage
-- Single point of failure
-- Dependent on external VPN control plane
-- Not designed for high-performance workloads
-
-This environment prioritizes learning and architectural understanding over performance.
+- Pi 2B: constrained CPU and 1GB RAM
+- USB 2.0 bottleneck for NVMe storage
+- Single point of failure (no redundancy)
+- Dependent on Tailscale's coordination server
+- Not suitable for compute-heavy workloads
 
 ---
 
-## Lessons Learned
+## TODO
 
-- Overlay networking simplifies secure remote access
-- Containerization improves service modularity
-- Observability is essential for diagnosing system performance
-- NVMe storage significantly improves Docker workloads compared to SD cards
-- Minimizing external exposure reduces operational risk
-
----
-
-## Future Improvements
-
-- Automated photo backup system using Syncthing
-- Reverse proxy for internal service routing
-- Backup automation for NAS data
-- Hardware upgrade (Raspberry Pi 4 or mini server)
-- Infrastructure as Code approach for reproducibility
-
----
-
-## Project Intent
-
-This project focuses on understanding:
-
-- Overlay networking architecture
-- Container-based service design
-- Infrastructure observability
-- Security-first infrastructure decisions
-- Trade-off analysis in constrained hardware environments
-
-The objective is not just to run services, but to design and document a small-scale infrastructure with clear architectural reasoning.
+- [ ] Container memory limits (`mem_limit` / `--memory`)
+- [ ] Syncthing for automated photo backups
+- [ ] Reverse proxy for internal service routing (Caddy / Traefik)
+- [ ] NAS backup automation
+- [ ] Hardware upgrade (Pi 4 / mini PC)
+- [ ] Infrastructure as Code (Ansible / Docker Compose versioning)
