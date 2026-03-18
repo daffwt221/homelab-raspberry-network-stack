@@ -21,7 +21,7 @@ Monitoring (Grafana) showed:
 - Swap usage reaching ~24%
 - System heavily relying on swap memory
 
-![Grafana](../img/grafana_monitor_18-03-2026.png?raw=true)
+![Grafana](https://raw.githubusercontent.com/TEU_USER/TEU_REPO/main/img/grafana_monitor_18-03-2026.png)
 
 System logs confirmed:
 
