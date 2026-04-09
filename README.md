@@ -36,6 +36,26 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 
 ---
 
+## Getting Started
+
+All services are defined in `docker-compose.yml` and can be brought up with:
+
+```bash
+docker compose up -d
+```
+
+To include optional services (e.g. 4get):
+
+```bash
+docker compose --profile fourget up -d
+```
+
+> **Prerequisites:** Docker and Docker Compose installed. Prometheus configuration lives in `prometheus.yml` at the repo root — make sure it exists before starting.
+
+Persistent data is stored in named Docker volumes. No manual permission setup required.
+
+---
+
 ## Architecture
 
 The Pi serves as subnet router, exit node, DNS server (Pi-hole), Docker host, and monitoring node.
