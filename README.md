@@ -98,13 +98,13 @@ The Pi serves as subnet router, exit node, DNS server (Pi-hole), Docker host, an
           ┌──────────────────────▼──────────────────────┐
           │              Raspberry Pi 2B                │
           │                                             │
-          │  ┌──────────── Docker ─────────────────┐    │
+          │  ┌────────────── Docker ───────────────┐    │
           │  │  Grafana        (dashboards)        │    │
           │  │  Prometheus     (metrics)           │    │
           │  │  Node Exporter  (host metrics)      │    │
           │  │  Portainer      (container mgmt)    │    │
           │  │  4get           (search frontend)   │    │
-          │  └────────────────────────────────────┘     │
+          │  └─────────────────────────────────────┘    │
           │                                             │
           │  Pi-hole + Unbound  (DNS / ad-blocking)     │
           │  Samba              (NAS)                   │
