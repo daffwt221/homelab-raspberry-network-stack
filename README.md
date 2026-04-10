@@ -85,7 +85,43 @@ Persistent data is stored in named Docker volumes. No manual permission setup re
 
 The Pi serves as subnet router, exit node, DNS server (Pi-hole), Docker host, and monitoring node.
 
-![Homelab Architecture](diagrams/architecture.png)
+```
+                      ┌─────────────────────┐
+                      │      Internet       │
+                      └──────────┬──────────┘
+                                 │
+                      ┌──────────▼──────────┐
+                      │     Tailscale       │
+                      │   (WireGuard VPN)   │
+                      └──────────┬──────────┘
+                                 │
+          ┌──────────────────────▼──────────────────────┐
+          │              Raspberry Pi 2B                │
+          │                                             │
+          │  ┌──────────── Docker ─────────────────┐    │
+          │  │  Grafana        (dashboards)        │    │
+          │  │  Prometheus     (metrics)           │    │
+          │  │  Node Exporter  (host metrics)      │    │
+          │  │  Portainer      (container mgmt)    │    │
+          │  │  4get           (search frontend)   │    │
+          │  └────────────────────────────────────┘     │
+          │                                             │
+          │  Pi-hole + Unbound  (DNS / ad-blocking)     │
+          │  Samba              (NAS)                   │
+          │                                             │
+          │  Storage: SD card (OS) + NVMe (data/swap)   │
+          └──────────────────┬──────────────────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │    Home LAN     │
+                    │ 192.168.1.0/24  │
+                    └─────────────────┘
+
+Clients (via Tailscale mesh):
+  - Laptop
+  - Phone
+  - Restricted network  →  exit node routing
+```
 
 All services run as Docker containers. No inbound ports are open. Remote access goes exclusively through Tailscale's encrypted overlay network.
 
