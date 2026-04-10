@@ -50,7 +50,7 @@ To include optional services (e.g. 4get):
 docker compose --profile fourget up -d
 ```
 
-> **Prerequisites:** Docker and Docker Compose installed. Prometheus configuration lives in `prometheus.yml` at the repo root — make sure it exists before starting.
+> **Prerequisites:** Docker and Docker Compose installed. Prometheus configuration lives in `prometheus.yml` at the repo root, make sure it exists before starting.
 
 Persistent data is stored in named Docker volumes. No manual permission setup required.
 
