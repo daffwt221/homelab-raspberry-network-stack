@@ -34,23 +34,48 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 - Pi-hole (DNS filtering + query logging)
 - [4get](https://git.lolcat.ca/lolcat/4get) (self-hosted search frontend)
 
+### Provisioning
+
+- Ansible (automated setup and deployment)
+
 ---
 
 ## Getting Started
 
-All services are defined in `docker-compose.yml` and can be brought up with:
+### Configuration
+
+Before deploying, edit `group_vars/all.ini` to match your setup:
+
+```ini
+user: pi                          # user on the target machine
+compose_path: /home/pi            # where docker-compose.yml will be copied to
+compose_file: docker-compose.yml
+tailscale_authkey: XXXXX          # replace with your Tailscale auth key
+```
+
+You can generate a Tailscale auth key at [login.tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys).
+
+Also make sure `prometheus.yml` exists at the repo root before deploying — Prometheus expects it on startup.
+
+If you don't want the 4get scraper service, remove it from `docker-compose.yml` before running.
+
+### Automated provisioning (Ansible)
+
+Once configured, provision and deploy everything with a single command:
+
+```bash
+ansible-playbook -i inventory.ini playbook.yml
+```
+
+The playbook handles everything: installing Docker, Docker Compose, and Tailscale, authenticating the node, enabling Samba, and deploying the container stack automatically.
+
+### Manual deployment
+
+If Docker is already set up, bring up the stack directly:
 
 ```bash
 docker compose up -d
 ```
-
-To include optional services (e.g. 4get):
-
-```bash
-docker compose --profile fourget up -d
-```
-
-> **Prerequisites:** Docker and Docker Compose installed. Prometheus configuration lives in `prometheus.yml` at the repo root, make sure it exists before starting.
 
 Persistent data is stored in named Docker volumes. No manual permission setup required.
 
@@ -84,7 +109,7 @@ Prometheus scrapes host-level metrics from Node Exporter at regular intervals. G
 
 ## Design Rationale
 
-No port forwarding, no public-facing services. The overlay VPN handles all remote access, which keeps the attack surface minimal. Docker provides service isolation and portability. Portainer handles container lifecycle. Prometheus + Grafana give visibility into system health.
+No port forwarding, no public-facing services. The overlay VPN handles all remote access, which keeps the attack surface minimal. Docker provides service isolation and portability. Portainer handles container lifecycle. Prometheus + Grafana give visibility into system health. Ansible ensures the whole setup is reproducible and version-controlled.
 
 ---
 
@@ -117,4 +142,4 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 - [ ] Reverse proxy for internal service routing (Caddy / Traefik)
 - [ ] NAS backup automation
 - [ ] Hardware upgrade (Pi 4 / mini PC)
-- [ ] Infrastructure as Code (Ansible / Docker Compose versioning)
+- [x] Infrastructure as Code (Ansible / Docker Compose versioning)
