@@ -29,6 +29,12 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 - Prometheus + Node Exporter → Grafana
 - Tracks CPU, memory, disk, network, and load metrics
 
+## Incidents & Troubleshooting
+
+| Incident | Root Cause | Doc |
+|---|---|---|
+| System instability, DNS failures, container hangs | Swap thrashing on SD card under memory pressure | [swap-migration.md](docs/troubleshooting/swap-migration.md) |
+
 ### Services
 
 - Pi-hole (DNS filtering + query logging)
