@@ -1,0 +1,61 @@
+- name: Ansible Pi stack deployment
+  hosts: localhost
+  connection: local
+  become: yes
+
+  tasks:
+      - name: Install docker
+        apt:
+            name: docker.io
+            state: present
+            update_cache: yes
+
+      - name: Start docker
+        service:
+            name: docker
+            state: started
+            enabled: yes
+
+      - name: Install tailscale
+        apt:
+            name: tailscale
+            state: present
+
+      - name: Enable service tailscale
+        service:
+            name: tailscaled
+            state: started
+            enabled: yes
+
+      - name: Auth tailscale
+        command: tailscale up --authkey={{ tailscale_authkey }}
+        args:
+            creates: /var/lib/tailscale/tailscaled.state
+
+      - name: install samba
+        apt:
+            name: samba
+            state: present
+
+      - name: start samba
+        service:
+            name: samba
+            state: started
+            enabled: yes
+
+      - name: Install docker compose plugin
+        apt:
+            name: docker-compose-plugin
+            state: present
+
+      - name: copy docker compose
+        copy:
+            src: ./docker-compose.yml
+            dest: "{{ compose_path }}/{{ compose_file }}"
+            owner: "{{ user }}"
+            group: "{{ user }}"
+
+      - name: run containers
+        command: docker compose up -d
+        args:
+            chdir: "{{ compose_path }}"
