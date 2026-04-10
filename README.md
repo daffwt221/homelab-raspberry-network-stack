@@ -55,7 +55,7 @@ tailscale_authkey: XXXXX          # replace with your Tailscale auth key
 
 You can generate a Tailscale auth key at [login.tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys).
 
-Also make sure `prometheus.yml` exists at the repo root before deploying — Prometheus expects it on startup.
+Also make sure `prometheus.yml` exists at the repo root before deploying, Prometheus expects it on startup.
 
 If you don't want the 4get scraper service, remove it from `docker-compose.yml` before running.
 
