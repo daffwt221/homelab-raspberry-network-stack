@@ -56,9 +56,3 @@ Swap usage dropped significantly post-migration. System remains stable under nor
 - 1GB of RAM is tight when running multiple containers, swap placement matters a lot
 - SD card swap is unusable under sustained memory pressure due to I/O limitations
 - Grafana + Prometheus monitoring was critical for identifying the root cause
-
-## TODO
-
-- Set memory limits on Docker containers (`--memory` / `mem_limit`)
-- Reduce Prometheus scrape intervals to lower resource consumption
-- Evaluate hardware upgrade (Pi 4 / mini PC) for long-term scalability
