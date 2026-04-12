@@ -1,5 +1,5 @@
 # Swap Migration (SD → NVMe)
-
+18-03-2026
 ## Context
 
 The Raspberry Pi 2B (1GB RAM) was experiencing system instability under load, DNS resolution failures, unresponsive containers, Tailscale disconnections, and eventual full system hangs requiring manual reboot.
