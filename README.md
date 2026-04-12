@@ -34,6 +34,7 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 | Incident | Root Cause | Doc |
 |---|---|---|
 | System instability, DNS failures, container hangs | Swap thrashing on SD card under memory pressure | [swap-migration.md](docs/troubleshooting/swap-migration.md) |
+| Docker containers unresponsive despite showing as Up | Memory pressure causing inconsistent Docker state | [docker-unresponsive-incident.md](docs/troubleshooting/docker-unresponsive-incident.md) |
 
 ### Services
 
