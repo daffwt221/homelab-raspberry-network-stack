@@ -1,5 +1,5 @@
 # Incident: Docker Containers Unresponsive
-12-04-2026
+10-04-2026
 ## What happened
 
 All Docker services (Grafana, Prometheus, Portainer) became unreachable simultaneously. Containers were marked as `Up` in `docker ps`, but no web interfaces were accessible and `curl localhost:<port>` failed across the board, ruling out DNS or external networking as the cause.
