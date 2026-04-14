@@ -43,6 +43,22 @@
             state: started
             enabled: yes
 
+      - name: Set Grafana volume permissions
+        file:
+            path: /mnt/nvme/docker/grafana
+            owner: "472"
+            group: "472"
+            recurse: yes
+            state: directory
+
+      - name: Set Prometheus volume permissions
+        file:
+            path: /mnt/nvme/docker/prometheus
+            owner: "65534"
+            group: "65534"
+            recurse: yes
+            state: directory
+
       - name: Install docker compose plugin
         apt:
             name: docker-compose-plugin
