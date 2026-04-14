@@ -64,6 +64,8 @@ You can generate a Tailscale auth key at [login.tailscale.com/admin/settings/key
 
 Also make sure `prometheus.yml` exists at the repo root before deploying, Prometheus expects it on startup.
 
+Volume permissions for Grafana and Prometheus are set automatically by the playbook. No manual `chown` required.
+
 If you don't want the 4get scraper service, remove it from `docker-compose.yml` before running.
 
 ### Automated provisioning (Ansible)
