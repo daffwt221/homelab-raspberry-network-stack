@@ -66,6 +66,8 @@ Also make sure `prometheus.yml` exists at the repo root before deploying, Promet
 
 Volume permissions for Grafana and Prometheus are set automatically by the playbook. No manual `chown` required.
 
+Memory limits are set per container in `docker-compose.yml` and tuned for the Pi 2B (1GB RAM). Adjust `mem_limit` values if running on different hardware.
+
 If you don't want the 4get scraper service, remove it from `docker-compose.yml` before running.
 
 ### Automated provisioning (Ansible)
@@ -182,7 +184,7 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 
 ## TODO
 
-- [ ] Container memory limits (`mem_limit` / `--memory`)
+- [x] Container memory limits (`mem_limit` / `--memory`)
 - [ ] Syncthing for automated photo backups
 - [ ] Reverse proxy for internal service routing (Caddy / Traefik)
 - [ ] NAS backup automation
