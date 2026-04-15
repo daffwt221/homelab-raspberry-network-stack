@@ -70,7 +70,7 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 ### Resilience
 
 - log2ram (reduces SD card writes by buffering logs in RAM)
-- Watchdog (automatic reboot on system hang
+- Watchdog (automatic reboot on system hang)
 
 ### Provisioning
 
