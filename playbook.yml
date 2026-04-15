@@ -50,6 +50,12 @@
             group: "472"
             recurse: yes
             state: directory
+  
+      - name: Add Debian bookworm repo for log2ram
+        lineinfile:
+            path: /etc/apt/sources.list.d/bookworm.list
+            line: 'deb http://deb.debian.org/debian bookworm main'
+            create: yes
 
       - name: Install log2ram
         apt:
