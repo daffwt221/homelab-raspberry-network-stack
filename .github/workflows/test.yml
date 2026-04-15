@@ -1,14 +1,12 @@
-name: Test Workflow
+name: Fetch Test
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/10 * * * *"
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Print message
-        run: echo "GitHub Actions is working"
+      - name: Test internet access
+        run: curl https://api.ipify.org
