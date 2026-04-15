@@ -1,3 +1,8 @@
+TEST
+![CPU](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/cpu.json)
+
+![RAM](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/ram.json)
+
 <p align="center">
   <img src="img/logo/logo2.png" alt="Homelab Logo" width="340"/>
 </p>
