@@ -33,32 +33,21 @@ jobs:
           METRICS=$(curl -s http://search-rive:9100/metrics)
 
           # -------- RAM --------
-          MEM_TOTAL=$(echo "$METRICS" | awk 'index($1,"node_memory_MemTotal_bytes")==1 {print $2}' | head -n1)
-          MEM_AVAIL=$(echo "$METRICS" | awk 'index($1,"node_memory_MemAvailable_bytes")==1 {print $2}' | head -n1)
+          MEM_TOTAL=$(echo "$METRICS" | grep '^node_memory_MemTotal_bytes ' | awk '{print $2}')
+          MEM_AVAIL=$(echo "$METRICS" | grep '^node_memory_MemAvailable_bytes ' | awk '{print $2}')
 
           if [[ "$MEM_TOTAL" =~ ^[0-9]+$ ]] && [[ "$MEM_AVAIL" =~ ^[0-9]+$ ]]; then
             RAM_USED=$(echo "scale=0; (($MEM_TOTAL - $MEM_AVAIL) * 100) / $MEM_TOTAL" | bc)
           else
-            echo "Invalid RAM metrics"
             RAM_USED=0
           fi
 
-          # -------- CPU --------
-          CPU_IDLE=$(echo "$METRICS" | \
-            awk 'index($1,"node_cpu_seconds_total")==1 && $0 ~ /mode="idle"/ {sum+=$2} END {print int(sum)}')
+          # -------- CPU (LOAD BASED) --------
+          LOAD=$(echo "$METRICS" | grep '^node_load1 ' | awk '{print $2}' | head -n1)
 
-          sleep 1
-
-          METRICS2=$(curl -s http://search-rive:9100/metrics)
-
-          CPU_IDLE2=$(echo "$METRICS2" | \
-            awk 'index($1,"node_cpu_seconds_total")==1 && $0 ~ /mode="idle"/ {sum+=$2} END {print int(sum)}')
-
-          if [[ "$CPU_IDLE" =~ ^[0-9]+$ ]] && [[ "$CPU_IDLE2" =~ ^[0-9]+$ ]]; then
-            DIFF=$(echo "$CPU_IDLE2 - $CPU_IDLE" | bc)
-            CPU_USAGE=$(echo "scale=0; (1 - $DIFF) * 100" | bc)
+          if [[ "$LOAD" =~ ^[0-9.]+$ ]]; then
+            CPU_USAGE=$(echo "scale=0; $LOAD * 100" | bc)
           else
-            echo "Invalid CPU metrics"
             CPU_USAGE=0
           fi
 
