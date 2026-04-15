@@ -7,4 +7,42 @@ on:
 
 jobs:
   metrics:
-    runs-on: ubuntu-l
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: Connect to Tailscale
+        run: |
+          sudo tailscale up \
+            --authkey=${{ secrets.TAILSCALE_AUTHKEY }} \
+            --hostname=github-actions \
+            --accept-routes
+
+      - name: Wait for connection
+        run: sleep 5
+
+      - name: Test connection
+        run: ping -c 2 search-rive
+
+      - name: Fetch Node Exporter metrics
+        run: |
+          curl -s http://search-rive:9100/metrics | grep -E "node_memory_MemAvailable_bytes|node_memory_MemTotal_bytes|node_cpu_seconds_total" | head -n 20
+
+      - name: Calculate CPU and RAM
+        run: |
+          MEM_TOTAL=$(curl -s http://search-rive:9100/metrics | grep node_memory_MemTotal_bytes | awk '{print $2}')
+          MEM_AVAIL=$(curl -s http://search-rive:9100/metrics | grep node_memory_MemAvailable_bytes | awk '{print $2}')
+
+          RAM_USED=$(echo "scale=0; (1 - $MEM_AVAIL / $MEM_TOTAL) * 100" | bc)
+
+          CPU_IDLE=$(curl -s http://search-rive:9100/metrics | grep 'node_cpu_seconds_total.*mode="idle"' | head -n1 | awk '{print $2}')
+          sleep 1
+          CPU_IDLE2=$(curl -s http://search-rive:9100/metrics | grep 'node_cpu_seconds_total.*mode="idle"' | head -n1 | awk '{print $2}')
+
+          CPU_USAGE=$(echo "scale=0; (1 - ($CPU_IDLE2 - $CPU_IDLE)) * 100" | bc)
+
+          echo "CPU: $CPU_USAGE%"
+          echo "RAM: $RAM_USED%"
