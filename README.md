@@ -14,12 +14,6 @@
 </p>
 
 <p align="center">
-  <sub><i>
-    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/updated.json&cacheSeconds=60" />
-  </i></sub>
-</p>
-
-<p align="center">
   <img src="https://img.shields.io/badge/Hardware-Raspberry%20Pi%202B-red" />
   <img src="https://img.shields.io/badge/Docker-Enabled-blue" />
   <img src="https://img.shields.io/badge/Monitoring-Prometheus%20%2B%20Grafana-green" />
