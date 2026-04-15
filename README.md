@@ -113,7 +113,7 @@ Once configured, provision and deploy everything with a single command:
 ansible-playbook -i inventory.ini playbook.yml
 ```
 
-The playbook handles everything: installing Docker, Docker Compose, and Tailscale, authenticating the node, enabling Samba, configuring log2ram and the hardware watchdog, and deploying the container stack automatically.
+The playbook handles everything: installing Docker, Docker Compose, and Tailscale, authenticating the node, enabling Samba, and deploying the container stack automatically.
 
 ### Manual deployment
 
