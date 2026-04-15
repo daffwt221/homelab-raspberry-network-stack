@@ -18,4 +18,4 @@ jobs:
 
       - name: Test connection to Pi
         run: |
-          ping -c 2 search-rive
+          curl http://search-rive:9100/metrics | head -n 20
