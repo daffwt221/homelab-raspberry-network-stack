@@ -1,4 +1,4 @@
-name: Fetch Metrics via Tailscale
+name: fetch Metrics
 
 on:
   workflow_dispatch:
