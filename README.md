@@ -29,21 +29,28 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 - Prometheus + Node Exporter → Grafana
 - Tracks CPU, memory, disk, network, and load metrics
 
+### Services
+
+- Pi-hole (DNS filtering + query logging)
+- [4get](https://git.lolcat.ca/lolcat/4get) (self-hosted search frontend)
+
+### Resilience
+
+- log2ram (reduces SD card writes by buffering logs in RAM)
+- Watchdog (automatic reboot on system hang)
+
+### Provisioning
+
+- Ansible (automated setup and deployment)
+
+---
+
 ## Incidents & Troubleshooting
 
 | Incident | Root Cause | Doc |
 |---|---|---|
 | System instability, DNS failures, container hangs | Swap thrashing on SD card under memory pressure | [swap-migration.md](docs/troubleshooting/swap-migration.md) |
 | Docker containers unresponsive despite showing as Up | Memory pressure causing inconsistent Docker state | [docker-unresponsive-incident.md](docs/troubleshooting/docker-unresponsive-incident.md) |
-
-### Services
-
-- Pi-hole (DNS filtering + query logging)
-- [4get](https://git.lolcat.ca/lolcat/4get) (self-hosted search frontend)
-
-### Provisioning
-
-- Ansible (automated setup and deployment)
 
 ---
 
@@ -78,7 +85,7 @@ Once configured, provision and deploy everything with a single command:
 ansible-playbook -i inventory.ini playbook.yml
 ```
 
-The playbook handles everything: installing Docker, Docker Compose, and Tailscale, authenticating the node, enabling Samba, and deploying the container stack automatically.
+The playbook handles everything: installing Docker, Docker Compose, and Tailscale, authenticating the node, enabling Samba, configuring log2ram and the hardware watchdog, and deploying the container stack automatically.
 
 ### Manual deployment
 
@@ -119,6 +126,8 @@ The Pi serves as subnet router, exit node, DNS server (Pi-hole), Docker host, an
           │                                             │
           │  Pi-hole + Unbound  (DNS / ad-blocking)     │
           │  Samba              (NAS)                   │
+          │  log2ram            (SD card protection)    │
+          │  Watchdog           (auto-reboot on hang)   │
           │                                             │
           │  Storage: SD card (OS) + NVMe (data/swap)   │
           └──────────────────┬──────────────────────────┘
@@ -156,7 +165,7 @@ Prometheus scrapes host-level metrics from Node Exporter at regular intervals. G
 
 ## Design Rationale
 
-No port forwarding, no public-facing services. The overlay VPN handles all remote access, which keeps the attack surface minimal. Docker provides service isolation and portability. Portainer handles container lifecycle. Prometheus + Grafana give visibility into system health. Ansible ensures the whole setup is reproducible and version-controlled.
+No port forwarding, no public-facing services. The overlay VPN handles all remote access, which keeps the attack surface minimal. Docker provides service isolation and portability. Portainer handles container lifecycle. Prometheus + Grafana give visibility into system health. log2ram reduces SD card wear, and the hardware watchdog ensures automatic recovery from hangs. Ansible ensures the whole setup is reproducible and version-controlled.
 
 ---
 
