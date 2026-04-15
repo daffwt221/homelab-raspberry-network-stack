@@ -1,4 +1,4 @@
-name: fetch Metrics
+name: Fetch Metrics via Tailscale
 
 on:
   workflow_dispatch:
@@ -34,28 +34,40 @@ jobs:
 
       - name: Fetch and calculate metrics
         run: |
-          # RAM
-          MEM_TOTAL=$(curl -s http://search-rive:9100/metrics | grep node_memory_MemTotal_bytes | awk '{print $2}')
-          MEM_AVAIL=$(curl -s http://search-rive:9100/metrics | grep node_memory_MemAvailable_bytes | awk '{print $2}')
-          RAM_USED=$(echo "scale=0; (($MEM_TOTAL - $MEM_AVAIL) / $MEM_TOTAL) * 100" | bc)
+          METRICS=$(curl -s http://search-rive:9100/metrics)
 
-          # CPU (multi-core safe)
-          CPU_IDLE=$(curl -s http://search-rive:9100/metrics | \
-            grep 'node_cpu_seconds_total.*mode="idle"' | \
-            awk '{sum+=$2} END {print sum}')
+          # -------- RAM --------
+          MEM_TOTAL=$(echo "$METRICS" | awk '/node_memory_MemTotal_bytes/ {print $2}')
+          MEM_AVAIL=$(echo "$METRICS" | awk '/node_memory_MemAvailable_bytes/ {print $2}')
+
+          if [ -z "$MEM_TOTAL" ] || [ -z "$MEM_AVAIL" ]; then
+            echo " Failed to get RAM metrics, defaulting to 0"
+            RAM_USED=0
+          else
+            RAM_USED=$(echo "scale=0; (($MEM_TOTAL - $MEM_AVAIL) / $MEM_TOTAL) * 100" | bc)
+          fi
+
+          # -------- CPU --------
+          CPU_IDLE=$(echo "$METRICS" | \
+            awk '/node_cpu_seconds_total.*mode="idle"/ {sum+=$2} END {print sum}')
 
           sleep 1
 
-          CPU_IDLE2=$(curl -s http://search-rive:9100/metrics | \
-            grep 'node_cpu_seconds_total.*mode="idle"' | \
-            awk '{sum+=$2} END {print sum}')
+          METRICS2=$(curl -s http://search-rive:9100/metrics)
 
-          CPU_USAGE=$(echo "scale=0; (1 - ($CPU_IDLE2 - $CPU_IDLE)) * 100" | bc)
+          CPU_IDLE2=$(echo "$METRICS2" | \
+            awk '/node_cpu_seconds_total.*mode="idle"/ {sum+=$2} END {print sum}')
+
+          if [ -z "$CPU_IDLE" ] || [ -z "$CPU_IDLE2" ]; then
+            echo "⚠️ Failed to get CPU metrics, defaulting to 0"
+            CPU_USAGE=0
+          else
+            CPU_USAGE=$(echo "scale=0; (1 - ($CPU_IDLE2 - $CPU_IDLE)) * 100" | bc)
+          fi
 
           echo "CPU: $CPU_USAGE%"
           echo "RAM: $RAM_USED%"
 
-          # criar JSON para badge
           echo "{\"cpu\": $CPU_USAGE, \"ram\": $RAM_USED}" > metrics.json
 
       - name: Commit metrics.json
