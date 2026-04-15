@@ -2,20 +2,9 @@ name: Fetch Metrics via Tailscale
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Install Tailscale
-        run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
-
-      - name: Connect to Tailscale
-        run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=github-actions
-
-      - name: Test connection to Pi
-        run: |
-          curl http://search-rive:9100/metrics | head -n 20
+  metrics:
+    runs-on: ubuntu-l
