@@ -3,7 +3,7 @@ name: Fetch Metrics via Tailscale
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/2 * * * *"
 
 permissions:
   contents: write
