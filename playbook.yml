@@ -50,35 +50,6 @@
             group: "472"
             recurse: yes
             state: directory
-  
-      - name: Add Debian bookworm repo for log2ram
-        lineinfile:
-            path: /etc/apt/sources.list.d/bookworm.list
-            line: 'deb http://deb.debian.org/debian bookworm main'
-            create: yes
-
-      - name: Install log2ram
-        apt:
-            name: log2ram
-            state: present
-
-      - name: Enable log2ram
-        service:
-            name: log2ram
-            state: started
-            enabled: yes
-
-      - name: Enable hardware watchdog
-        lineinfile:
-            path: /etc/systemd/system.conf
-            regexp: '^#?RuntimeWatchdogSec='
-            line: 'RuntimeWatchdogSec=15'
-
-      - name: Enable watchdog device in systemd
-        lineinfile:
-            path: /etc/systemd/system.conf
-            regexp: '^#?WatchdogDevice='
-            line: 'WatchdogDevice=/dev/watchdog'
 
       - name: Set Grafana volume permissions
         file:
