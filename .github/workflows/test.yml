@@ -68,7 +68,7 @@ jobs:
           # -------- UPDATE README --------
           NOW=$(date -u +"%H:%M UTC")
 
-          sed -i "s|<!-- LAST_UPDATED -->.*|<!-- LAST_UPDATED -->Last updated: $NOW|g" README.md
+          sed -i "s|<!-- LAST_UPDATED -->.*<!-- END_LAST_UPDATED -->|<!-- LAST_UPDATED -->Last updated: $NOW<!-- END_LAST_UPDATED -->|g" README.md
 
       - name: Commit metrics + README
         run: |
