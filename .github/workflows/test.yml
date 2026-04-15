@@ -34,8 +34,8 @@ jobs:
         run: |
           METRICS=$(curl -s http://search-rive:9100/metrics)
 
-          MEM_TOTAL=$(echo "$METRICS" | grep '^node_memory_MemTotal_bytes ' | awk '{print $2}')
-          MEM_AVAIL=$(echo "$METRICS" | grep '^node_memory_MemAvailable_bytes ' | awk '{print $2}')
+          MEM_TOTAL=$(echo "$METRICS" | grep 'node_memory_MemTotal_bytes' | grep -v '^#' | head -n1 | awk '{printf "%.0f", $2}')
+          MEM_AVAIL=$(echo "$METRICS" | grep 'node_memory_MemAvailable_bytes' | grep -v '^#' | head -n1 | awk '{printf "%.0f", $2}')
 
           if [[ "$MEM_TOTAL" =~ ^[0-9]+$ ]] && [[ "$MEM_AVAIL" =~ ^[0-9]+$ ]]; then
             RAM_USED=$(echo "scale=0; (($MEM_TOTAL - $MEM_AVAIL) * 100) / $MEM_TOTAL" | bc)
