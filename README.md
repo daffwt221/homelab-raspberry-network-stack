@@ -2,8 +2,6 @@
   <img src="img/logo/logo2.png" alt="Homelab Logo" width="340"/>
 </p>
 
-<h1 align="center">Raspberry Pi Homelab</h1>
-
 <p align="center">
   <strong>Containerized Network & Monitoring Stack on Low-Resource Hardware</strong>
 </p>
