@@ -67,6 +67,11 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 - Pi-hole (DNS filtering + query logging)
 - [4get](https://git.lolcat.ca/lolcat/4get) (self-hosted search frontend)
 
+### Resilience
+
+- log2ram (reduces SD card writes by buffering logs in RAM)
+- Watchdog (automatic reboot on system hang
+
 ### Provisioning
 
 - Ansible (automated setup and deployment)
@@ -113,7 +118,7 @@ Once configured, provision and deploy everything with a single command:
 ansible-playbook -i inventory.ini playbook.yml
 ```
 
-The playbook handles everything: installing Docker, Docker Compose, and Tailscale, authenticating the node, enabling Samba, and deploying the container stack automatically.
+The playbook handles everything: installing Docker, Docker Compose, and Tailscale, authenticating the node, enabling Samba, configuring log2ram and the hardware watchdog, and deploying the container stack automatically.
 
 ### Manual deployment
 
@@ -154,6 +159,8 @@ The Pi serves as subnet router, exit node, DNS server (Pi-hole), Docker host, an
           │                                             │
           │  Pi-hole + Unbound  (DNS / ad-blocking)     │
           │  Samba              (NAS)                   │
+          │  log2ram            (SD card protection)    │
+          │  Watchdog           (auto-reboot on hang)   │
           │                                             │
           │  Storage: SD card (OS) + NVMe (data/swap)   │
           └──────────────────┬──────────────────────────┘
