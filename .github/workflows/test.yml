@@ -10,9 +10,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y bc
+
       - name: Install Tailscale
-        run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
+        run: curl -fsSL https://tailscale.com/install.sh | sh
 
       - name: Connect to Tailscale
         run: |
@@ -27,22 +32,37 @@ jobs:
       - name: Test connection
         run: ping -c 2 search-rive
 
-      - name: Fetch Node Exporter metrics
+      - name: Fetch and calculate metrics
         run: |
-          curl -s http://search-rive:9100/metrics | grep -E "node_memory_MemAvailable_bytes|node_memory_MemTotal_bytes|node_cpu_seconds_total" | head -n 20
-
-      - name: Calculate CPU and RAM
-        run: |
+          # RAM
           MEM_TOTAL=$(curl -s http://search-rive:9100/metrics | grep node_memory_MemTotal_bytes | awk '{print $2}')
           MEM_AVAIL=$(curl -s http://search-rive:9100/metrics | grep node_memory_MemAvailable_bytes | awk '{print $2}')
+          RAM_USED=$(echo "scale=0; (($MEM_TOTAL - $MEM_AVAIL) / $MEM_TOTAL) * 100" | bc)
 
-          RAM_USED=$(echo "scale=0; (1 - $MEM_AVAIL / $MEM_TOTAL) * 100" | bc)
+          # CPU (multi-core safe)
+          CPU_IDLE=$(curl -s http://search-rive:9100/metrics | \
+            grep 'node_cpu_seconds_total.*mode="idle"' | \
+            awk '{sum+=$2} END {print sum}')
 
-          CPU_IDLE=$(curl -s http://search-rive:9100/metrics | grep 'node_cpu_seconds_total.*mode="idle"' | head -n1 | awk '{print $2}')
           sleep 1
-          CPU_IDLE2=$(curl -s http://search-rive:9100/metrics | grep 'node_cpu_seconds_total.*mode="idle"' | head -n1 | awk '{print $2}')
+
+          CPU_IDLE2=$(curl -s http://search-rive:9100/metrics | \
+            grep 'node_cpu_seconds_total.*mode="idle"' | \
+            awk '{sum+=$2} END {print sum}')
 
           CPU_USAGE=$(echo "scale=0; (1 - ($CPU_IDLE2 - $CPU_IDLE)) * 100" | bc)
 
           echo "CPU: $CPU_USAGE%"
           echo "RAM: $RAM_USED%"
+
+          # criar JSON para badge
+          echo "{\"cpu\": $CPU_USAGE, \"ram\": $RAM_USED}" > metrics.json
+
+      - name: Commit metrics.json
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+
+          git add metrics.json
+          git commit -m "update metrics" || exit 0
+          git push
