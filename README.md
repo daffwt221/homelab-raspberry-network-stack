@@ -1,4 +1,32 @@
-# Raspberry Pi Homelab – Containerized Network & Services Stack
+<p align="center">
+  <img src="img/logo/logo2.png" alt="Homelab Logo" width="340"/>
+</p>
+
+<h1 align="center">Raspberry Pi Homelab</h1>
+
+<p align="center">
+  <strong>Containerized Network & Monitoring Stack on Low-Resource Hardware</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Hardware-Raspberry%20Pi%202B-red" />
+  <img src="https://img.shields.io/badge/Docker-Enabled-blue" />
+  <img src="https://img.shields.io/badge/Monitoring-Prometheus%20%2B%20Grafana-green" />
+  <img src="https://img.shields.io/badge/Network-Tailscale-purple" />
+  <img src="https://img.shields.io/badge/Storage-NVMe-critical" />
+  <img src="https://img.shields.io/badge/Status-Stable-brightgreen" />
+</p>
+
+<p align="center">
+  <a href="#overview">Overview</a> •
+  <a href="#stack">Stack</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#monitoring">Monitoring</a> •
+  <a href="#design-rationale">Design</a> •
+  <a href="#threat-model">Security</a>
+</p>
+
+---
 
 ## Overview
 
