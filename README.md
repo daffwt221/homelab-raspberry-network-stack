@@ -14,7 +14,6 @@
   <img src="https://img.shields.io/badge/Monitoring-Prometheus%20%2B%20Grafana-green" />
   <img src="https://img.shields.io/badge/Network-Tailscale-purple" />
   <img src="https://img.shields.io/badge/Storage-NVMe-critical" />
-  <img src="https://img.shields.io/badge/Status-Stable-brightgreen" />
 </p>
 
 <p align="center">
