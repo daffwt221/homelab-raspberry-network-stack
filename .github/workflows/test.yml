@@ -1,66 +1,82 @@
-name: Fetch Metrics via Tailscale
+name: fetch Metrics
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "*/10 * * * *"
-
-permissions:
-  contents: write
+    workflow_dispatch:
+    schedule:
+        - cron: "*/10 * * * *"
 
 jobs:
-  metrics:
-    runs-on: ubuntu-latest
+    metrics:
+        runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
+        steps:
+            - name: Checkout repo
+              uses: actions/checkout@v4
 
-      - run: sudo apt-get update && sudo apt-get install -y bc
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y bc
 
-      - run: curl -fsSL https://tailscale.com/install.sh | sh
+            - name: Install Tailscale
+              run: curl -fsSL https://tailscale.com/install.sh | sh
 
-      - run: |
-          sudo tailscale up \
-            --authkey=${{ secrets.TAILSCALE_AUTHKEY }} \
-            --hostname=github-actions
+            - name: Connect to Tailscale
+              run: |
+                  sudo tailscale up \
+                    --authkey=${{ secrets.TAILSCALE_AUTHKEY }} \
+                    --hostname=github-actions \
+                    --accept-routes
 
-      - run: sleep 5
+            - name: Wait for connection
+              run: sleep 5
 
-      - run: ping -c 2 search-rive
+            - name: Test connection
+              run: ping -c 2 search-rive
 
-      - name: Fetch and calculate metrics
-        run: |
-          METRICS=$(curl -s http://search-rive:9100/metrics)
+            - name: Fetch and calculate metrics
+              run: |
+                  # RAM
+                  MEM_TOTAL=$(curl -s http://search-rive:9100/metrics | grep node_memory_MemTotal_bytes | awk '{print $2}')
+                  MEM_AVAIL=$(curl -s http://search-rive:9100/metrics | grep node_memory_MemAvailable_bytes | awk '{print $2}')
+                  RAM_USED=$(echo "scale=0; (($MEM_TOTAL - $MEM_AVAIL) / $MEM_TOTAL) * 100" | bc)
 
-          # -------- RAM --------
-          MEM_TOTAL=$(echo "$METRICS" | grep '^node_memory_MemTotal_bytes ' | awk '{print $2}')
-          MEM_AVAIL=$(echo "$METRICS" | grep '^node_memory_MemAvailable_bytes ' | awk '{print $2}')
+                  # CPU (multi-core safe)
+                  CPU_IDLE=$(curl -s http://search-rive:9100/metrics | \
+                    grep 'node_cpu_seconds_total.*mode="idle"' | \
+                    awk '{sum+=$2} END {print sum}')
 
-          if [[ "$MEM_TOTAL" =~ ^[0-9]+$ ]] && [[ "$MEM_AVAIL" =~ ^[0-9]+$ ]]; then
-            RAM_USED=$(echo "scale=0; (($MEM_TOTAL - $MEM_AVAIL) * 100) / $MEM_TOTAL" | bc)
-          else
-            RAM_USED=0
-          fi
+                  sleep 1
 
-          # -------- CPU (LOAD BASED) --------
-          LOAD=$(echo "$METRICS" | grep '^node_load1 ' | awk '{print $2}' | head -n1)
+                  CPU_IDLE2=$(curl -s http://search-rive:9100/metrics | \
+                    grep 'node_cpu_seconds_total.*mode="idle"' | \
+                    awk '{sum+=$2} END {print sum}')
 
-          if [[ "$LOAD" =~ ^[0-9.]+$ ]]; then
-            CPU_USAGE=$(echo "scale=0; $LOAD * 100" | bc)
-          else
-            CPU_USAGE=0
-          fi
+                  CPU_USAGE=$(echo "scale=0; (1 - ($CPU_IDLE2 - $CPU_IDLE)) * 100" | bc)
 
-          echo "CPU: $CPU_USAGE%"
-          echo "RAM: $RAM_USED%"
+                  echo "CPU: $CPU_USAGE%"
+                  echo "RAM: $RAM_USED%"
 
-          echo "{\"cpu\": $CPU_USAGE, \"ram\": $RAM_USED}" > metrics.json
+                  # criar JSON para badge
+                  # CPU badge
+                  echo "{
+                    \"schemaVersion\": 1,
+                    \"label\": \"CPU\",
+                    \"message\": \"${CPU_USAGE}%\",
+                    \"color\": \"green\"
+                  }" > cpu.json
 
-      - name: Commit metrics
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
+                  # RAM badge
+                  echo "{
+                    \"schemaVersion\": 1,
+                    \"label\": \"RAM\",
+                    \"message\": \"${RAM_USED}%\",
+                    \"color\": \"blue\"
+                  }" > ram.json
 
-          git add metrics.json
-          git commit -m "update metrics" || exit 0
-          git push
+            - name: Commit metrics.json
+              run: |
+                  git config --global user.name "github-actions"
+                  git config --global user.email "actions@github.com"
+
+                  git add cpu.json ram.json
+                  git commit -m "update metrics" || exit 0
+                  git push
