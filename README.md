@@ -9,8 +9,14 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/cpu.json" />
-  <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/ram.json" />
+  <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/cpu.json&cacheSeconds=60" />
+  <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/ram.json&cacheSeconds=60" />
+</p>
+
+<p align="center">
+  <sub><i>
+    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/updated.json&cacheSeconds=60" />
+  </i></sub>
 </p>
 
 <p align="center">
