@@ -230,5 +230,5 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 - [ ] Syncthing for automated photo backups
 - [ ] Reverse proxy for internal service routing (Caddy / Traefik)
 - [ ] NAS backup automation
-- [ ] Hardware upgrade (Pi 4 / mini PC)
+- [ ] Expand homelab with an additional node (offload heavy services)
 - [x] Infrastructure as Code (Ansible / Docker Compose versioning)
