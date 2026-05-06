@@ -1,4 +1,4 @@
-<sub><i style="color: #888888;"><!-- LAST_UPDATED -->Last updated: 00:00 UTC<!-- END_LAST_UPDATED --></i></sub>
+<sub><i style="color: #888888;"><!-- LAST_UPDATED -->Last updated: 03:55 UTC<!-- END_LAST_UPDATED --></i></sub>
 <p align="center">
   <img src="img/logo/logo2.png" alt="Homelab Logo" width="340"/>
 </p>
