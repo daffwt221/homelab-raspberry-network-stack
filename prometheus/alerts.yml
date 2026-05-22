@@ -1,0 +1,42 @@
+groups:
+  - name: homelab-node
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Node Exporter is unreachable
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Memory usage is above 85%
+
+      - alert: HighSwapUsage
+        expr: (node_memory_SwapTotal_bytes > 0) and (((node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes) * 100 > 25)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Swap usage is above 25%
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) * 100 < 15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Filesystem free space is below 15%
+
+      - alert: HighSystemLoad
+        expr: node_load1 > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 1-minute system load is above 2

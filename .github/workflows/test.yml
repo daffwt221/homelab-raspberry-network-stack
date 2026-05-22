@@ -39,11 +39,14 @@ jobs:
         run: |
           METRICS=$(curl -s --max-time 5 http://search-rive:9100/metrics)
 
+          NOW=$(date -u +"%H:%M UTC")
+
           if [ -z "$METRICS" ]; then
             echo "Node unreachable"
 
             echo '{"schemaVersion":1,"label":"CPU","message":"offline","color":"red"}' > cpu.json
             echo '{"schemaVersion":1,"label":"RAM","message":"offline","color":"red"}' > ram.json
+            echo "{\"schemaVersion\":1,\"label\":\"Updated\",\"message\":\"${NOW}\",\"color\":\"red\"}" > updated.json
 
           else
             # -------- RAM --------
@@ -67,18 +70,14 @@ jobs:
 
             echo "{\"schemaVersion\":1,\"label\":\"CPU\",\"message\":\"${CPU_USAGE}%\",\"color\":\"green\"}" > cpu.json
             echo "{\"schemaVersion\":1,\"label\":\"RAM\",\"message\":\"${RAM_USED}%\",\"color\":\"blue\"}" > ram.json
+            echo "{\"schemaVersion\":1,\"label\":\"Updated\",\"message\":\"${NOW}\",\"color\":\"lightgrey\"}" > updated.json
           fi
 
-          # -------- UPDATE README --------
-          NOW=$(date -u +"%H:%M UTC")
-
-          sed -i "s|<!-- LAST_UPDATED -->.*<!-- END_LAST_UPDATED -->|<!-- LAST_UPDATED -->Last updated: $NOW<!-- END_LAST_UPDATED -->|g" README.md
-
-      - name: Commit metrics + README
+      - name: Commit metrics
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
 
-          git add cpu.json ram.json README.md
-          git commit -m "update metrics + timestamp" || exit 0
+          git add cpu.json ram.json updated.json
+          git commit -m "update metrics badge data" || exit 0
           git push

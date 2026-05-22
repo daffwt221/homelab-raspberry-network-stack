@@ -1,4 +1,3 @@
-<sub><i style="color: #888888;"><!-- LAST_UPDATED -->Last updated: 13:38 UTC<!-- END_LAST_UPDATED --></i></sub>
 <p align="center">
   <img src="img/logo/logo2.png" alt="Homelab Logo" width="340"/>
 </p>
@@ -12,6 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/cpu.json&cacheSeconds=60" />
   <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/ram.json&cacheSeconds=60" />
+  <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/daffwt221/homelab-raspberry-network-stack/main/updated.json&cacheSeconds=60" />
 </p>
 
 <p align="center">
@@ -91,24 +91,40 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 
 ### Configuration
 
-Before deploying, edit `group_vars/all.ini` to match your setup:
+Before deploying, create your local Ansible config from the example:
 
-```ini
-user: pi                          # user on the target machine
-compose_path: /home/pi            # where docker-compose.yml will be copied to
+```bash
+cp group_vars/all.yml.example group_vars/all.yml
+```
+
+Then edit `group_vars/all.yml` to match your setup:
+
+```yaml
+user: pi
+compose_path: /home/pi/homelab-stack
 compose_file: docker-compose.yml
-tailscale_authkey: XXXXX          # replace with your Tailscale auth key
+
+docker_data_root: /mnt/nvme/docker
+service_bind_address: tailscale
+
+tailscale_authkey: XXXXX
+tailscale_hostname: homelab-pi
+tailscale_advertise_routes: 192.168.1.0/24
+tailscale_advertise_exit_node: true
 ```
 
 You can generate a Tailscale auth key at [login.tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys).
+The auth key can also be supplied with the `TAILSCALE_AUTHKEY` environment variable for the first provisioning run.
 
-Also make sure `prometheus.yml` exists at the repo root before deploying, Prometheus expects it on startup.
+By default, the playbook resolves the node's Tailscale IPv4 address and binds the Docker-published services to that address only. This keeps access inside the tailnet and avoids router port forwarding entirely.
 
-Volume permissions for Grafana and Prometheus are set automatically by the playbook. No manual `chown` required.
+Prometheus config and alert rules live in `prometheus/` and are copied by the playbook.
+
+Container data is stored under `docker_data_root`, so Grafana, Prometheus, and Portainer state can live on NVMe instead of the SD card. Volume permissions for Grafana and Prometheus are set automatically by the playbook. No manual `chown` required.
 
 Memory limits are set per container in `docker-compose.yml` and tuned for the Pi 2B (1GB RAM). Adjust `mem_limit` values if running on different hardware.
 
-If you don't want the 4get scraper service, remove it from `docker-compose.yml` before running.
+The 4get scraper service is behind the optional Compose profile. To include it, run Compose with `--profile optional`.
 
 ### Automated provisioning (Ansible)
 
@@ -118,17 +134,20 @@ Once configured, provision and deploy everything with a single command:
 ansible-playbook -i inventory.ini playbook.yml
 ```
 
-The playbook handles everything: installing Docker, Docker Compose, and Tailscale, authenticating the node, enabling Samba, configuring log2ram and the hardware watchdog, and deploying the container stack automatically.
+The playbook handles installing Docker, Docker Compose, Tailscale, and Samba; authenticating the node; enabling IPv4 forwarding; advertising the subnet route and exit node; configuring log2ram and the hardware watchdog; copying Prometheus configuration; and deploying the container stack automatically.
+
+After the first Tailscale run, approve the advertised subnet route and exit node in the Tailscale admin console if required by your tailnet policy.
 
 ### Manual deployment
 
 If Docker is already set up, bring up the stack directly:
 
 ```bash
+cp .env.example .env
 docker compose up -d
 ```
 
-Persistent data is stored in named Docker volumes. No manual permission setup required.
+For manual deployment, set `SERVICE_BIND_ADDRESS` in `.env` to the output of `tailscale ip -4` if you want Tailscale-only access. Persistent data is stored under `DOCKER_DATA_ROOT` from `.env`.
 
 ---
 
@@ -186,6 +205,8 @@ Metrics pipeline: `Node Exporter → Prometheus → Grafana`
 
 Prometheus scrapes host-level metrics from Node Exporter at regular intervals. Grafana provides dashboards for tracking resource usage and identifying bottlenecks on constrained hardware.
 
+Basic Prometheus alert rules are included for unreachable Node Exporter, high memory usage, swap usage, low disk space, and sustained load.
+
 ---
 
 ## Network Behavior
@@ -193,6 +214,8 @@ Prometheus scrapes host-level metrics from Node Exporter at regular intervals. G
 **Normal operation:** Devices connect via Tailscale mesh. Traffic is peer-to-peer where possible. DNS queries go through Pi-hole.
 
 **Restricted networks (e.g. university Wi-Fi):** Exit node is enabled, routing all traffic through the Pi. DNS filtering stays active.
+
+No router port forwarding is required or expected. Remote access is handled through Tailscale, and container ports are bound to the Tailscale address by default when deployed with Ansible.
 
 ---
 
@@ -211,6 +234,7 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 | Unencrypted traffic on public Wi-Fi | Exit node + WireGuard encryption |
 | DNS tracking / malicious domains | Pi-hole DNS filtering |
 | Container breakout | Docker isolation + limited permissions |
+| Management plane exposure | Bind services to the Tailscale IP via `SERVICE_BIND_ADDRESS` |
 
 ---
 
@@ -221,14 +245,18 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 - Single point of failure (no redundancy)
 - Dependent on Tailscale's coordination server
 - Not suitable for compute-heavy workloads
+- Portainer requires Docker socket access, which should be treated as highly privileged
 
 ---
 
 ## TODO
 
 - [x] Container memory limits (`mem_limit` / `--memory`)
+- [x] NVMe-backed container data paths
+- [x] Prometheus alert rules
+- [x] Tailscale subnet route / exit node provisioning
 - [ ] Syncthing for automated photo backups
-- [ ] Reverse proxy for internal service routing (Caddy / Traefik)
+- [ ] Reverse proxy for internal service routing over Tailscale (Caddy / Traefik)
 - [ ] NAS backup automation
 - [ ] Expand homelab with an additional node (offload heavy services)
 - [x] Infrastructure as Code (Ansible / Docker Compose versioning)

@@ -4,18 +4,29 @@ services:
     container_name: prometheus
     restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:9090:9090"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/prometheus:/prometheus
     mem_limit: 150m
 
   node-exporter:
     image: prom/node-exporter
     container_name: node-exporter
     restart: unless-stopped
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
     ports:
-      - "9100:9100"
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    read_only: true
     mem_limit: 30m
 
   grafana:
@@ -23,9 +34,9 @@ services:
     container_name: grafana
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
-      - grafana_data:/var/lib/grafana
+      - ${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/grafana:/var/lib/grafana
     mem_limit: 220m
 
   portainer:
@@ -33,12 +44,12 @@ services:
     container_name: portainer
     restart: unless-stopped
     ports:
-      - "8000:8000"
-      - "9000:9000"
-      - "9443:9443"
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:8000:8000"
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:9000:9000"
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:9443:9443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
+      - ${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/portainer:/data
     mem_limit: 80m
 
   fourget:
@@ -46,12 +57,7 @@ services:
     container_name: fourget
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:8080:80"
     profiles:
       - optional
     mem_limit: 100m
-
-volumes:
-  grafana_data:
-  prometheus_data:
-  portainer_data:

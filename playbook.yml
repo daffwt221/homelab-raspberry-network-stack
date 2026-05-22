@@ -1,114 +1,177 @@
 - name: Ansible Pi stack deployment
-  hosts: localhost
+  hosts: local
   connection: local
-  become: yes
+  become: true
+
+  vars:
+      stack_user: "{{ user | default('pi') }}"
+      stack_path: "{{ compose_path | default('/home/pi/homelab-stack') }}"
+      stack_compose_file: "{{ compose_file | default('docker-compose.yml') }}"
+      docker_storage_path: "{{ docker_data_root | default('/mnt/nvme/docker') }}"
+      service_bind_address_requested: "{{ service_bind_address | default('tailscale') }}"
+      tailscale_authkey_effective: "{{ tailscale_authkey | default(lookup('env', 'TAILSCALE_AUTHKEY'), true) }}"
+      tailscale_hostname_effective: "{{ tailscale_hostname | default('homelab-pi') }}"
+      tailscale_routes_effective: "{{ tailscale_advertise_routes | default('192.168.1.0/24') }}"
+
+  pre_tasks:
+      - name: Check Tailscale state
+        stat:
+            path: /var/lib/tailscale/tailscaled.state
+        register: tailscale_state
+
+      - name: Require Tailscale auth key for first setup
+        assert:
+            that:
+                - tailscale_authkey_effective | length > 0
+                - tailscale_authkey_effective != 'XXXXX'
+            fail_msg: Set tailscale_authkey in group_vars/all.yml or export TAILSCALE_AUTHKEY before first provisioning.
+        when: not tailscale_state.stat.exists
 
   tasks:
-      - name: Install docker
+      - name: Install base packages
         apt:
-            name: docker.io
+            name:
+                - docker.io
+                - docker-compose-plugin
+                - tailscale
+                - samba
             state: present
-            update_cache: yes
+            update_cache: true
 
       - name: Start docker
         service:
             name: docker
             state: started
-            enabled: yes
-
-      - name: Install tailscale
-        apt:
-            name: tailscale
-            state: present
+            enabled: true
 
       - name: Enable service tailscale
         service:
             name: tailscaled
             state: started
-            enabled: yes
+            enabled: true
 
-      - name: Auth tailscale
-        command: tailscale up --authkey={{ tailscale_authkey }}
-        args:
-            creates: /var/lib/tailscale/tailscaled.state
-
-      - name: install samba
-        apt:
-            name: samba
+      - name: Enable IPv4 forwarding for subnet routing
+        sysctl:
+            name: net.ipv4.ip_forward
+            value: "1"
             state: present
+            reload: true
 
-      - name: start samba
+      - name: Configure Tailscale routes and exit node
+        command: >
+            tailscale up
+            {% if not tailscale_state.stat.exists %}--authkey={{ tailscale_authkey_effective }}{% endif %}
+            --hostname={{ tailscale_hostname_effective }}
+            --advertise-routes={{ tailscale_routes_effective }}
+            {% if tailscale_advertise_exit_node | default(true) | bool %}--advertise-exit-node{% endif %}
+        no_log: true
+        changed_when: not tailscale_state.stat.exists
+
+      - name: Resolve Tailscale IPv4 address
+        command: tailscale ip -4
+        register: tailscale_ipv4
+        changed_when: false
+        when: service_bind_address_requested == 'tailscale'
+
+      - name: Start Samba services
         service:
-            name: samba
+            name: "{{ item }}"
             state: started
-            enabled: yes
+            enabled: true
+        loop:
+            - smbd
+            - nmbd
 
       - name: Add Debian bookworm repo for log2ram
         lineinfile:
             path: /etc/apt/sources.list.d/bookworm.list
             line: 'deb http://deb.debian.org/debian bookworm main'
-            create: yes
+            create: true
+        when: enable_log2ram | default(true) | bool
 
       - name: Install log2ram
         apt:
             name: log2ram
             state: present
+            update_cache: true
+        when: enable_log2ram | default(true) | bool
 
       - name: Enable log2ram
         service:
             name: log2ram
             state: started
-            enabled: yes
+            enabled: true
+        when: enable_log2ram | default(true) | bool
 
       - name: Enable hardware watchdog
         lineinfile:
             path: /etc/systemd/system.conf
             regexp: '^#?RuntimeWatchdogSec='
             line: 'RuntimeWatchdogSec=15'
+        notify: Reexec systemd
 
       - name: Enable watchdog device in systemd
         lineinfile:
             path: /etc/systemd/system.conf
             regexp: '^#?WatchdogDevice='
             line: 'WatchdogDevice=/dev/watchdog'
+        notify: Reexec systemd
 
-      - name: Set Grafana volume permissions
+      - name: Create stack directories
         file:
-            path: /mnt/nvme/docker/grafana
-            owner: "472"
-            group: "472"
-            recurse: yes
+            path: "{{ item }}"
             state: directory
+            owner: "{{ stack_user }}"
+            group: "{{ stack_user }}"
+            mode: "0755"
+        loop:
+            - "{{ stack_path }}"
+            - "{{ stack_path }}/prometheus"
 
-      - name: Set Grafana volume permissions
+      - name: Create NVMe-backed Docker data directories
         file:
-            path: /mnt/nvme/docker/grafana
-            owner: "472"
-            group: "472"
-            recurse: yes
+            path: "{{ item.path }}"
+            owner: "{{ item.owner }}"
+            group: "{{ item.group }}"
             state: directory
+            mode: "0755"
+        loop:
+            - { path: "{{ docker_storage_path }}", owner: "0", group: "0" }
+            - { path: "{{ docker_storage_path }}/grafana", owner: "472", group: "472" }
+            - { path: "{{ docker_storage_path }}/prometheus", owner: "65534", group: "65534" }
+            - { path: "{{ docker_storage_path }}/portainer", owner: "0", group: "0" }
 
-      - name: Set Prometheus volume permissions
-        file:
-            path: /mnt/nvme/docker/prometheus
-            owner: "65534"
-            group: "65534"
-            recurse: yes
-            state: directory
-
-      - name: Install docker compose plugin
-        apt:
-            name: docker-compose-plugin
-            state: present
-
-      - name: copy docker compose
+      - name: Copy docker compose
         copy:
             src: ./docker-compose.yml
-            dest: "{{ compose_path }}/{{ compose_file }}"
-            owner: "{{ user }}"
-            group: "{{ user }}"
+            dest: "{{ stack_path }}/{{ stack_compose_file }}"
+            owner: "{{ stack_user }}"
+            group: "{{ stack_user }}"
+            mode: "0644"
 
-      - name: run containers
-        command: docker compose up -d
+      - name: Copy Prometheus configuration
+        copy:
+            src: ./prometheus/
+            dest: "{{ stack_path }}/prometheus/"
+            owner: "{{ stack_user }}"
+            group: "{{ stack_user }}"
+            mode: "0644"
+
+      - name: Write Docker Compose environment
+        copy:
+            dest: "{{ stack_path }}/.env"
+            owner: "{{ stack_user }}"
+            group: "{{ stack_user }}"
+            mode: "0644"
+            content: |
+                DOCKER_DATA_ROOT={{ docker_storage_path }}
+                SERVICE_BIND_ADDRESS={{ tailscale_ipv4.stdout if service_bind_address_requested == 'tailscale' else service_bind_address_requested }}
+
+      - name: Run containers
+        command: docker compose -f {{ stack_compose_file }} up -d
         args:
-            chdir: "{{ compose_path }}"
+            chdir: "{{ stack_path }}"
+
+  handlers:
+      - name: Reexec systemd
+        command: systemctl daemon-reexec

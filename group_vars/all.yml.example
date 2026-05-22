@@ -1,0 +1,11 @@
+user: pi
+compose_path: /home/pi/homelab-stack
+compose_file: docker-compose.yml
+
+docker_data_root: /mnt/nvme/docker
+service_bind_address: tailscale
+
+tailscale_authkey: XXXXX
+tailscale_hostname: homelab-pi
+tailscale_advertise_routes: 192.168.1.0/24
+tailscale_advertise_exit_node: true
