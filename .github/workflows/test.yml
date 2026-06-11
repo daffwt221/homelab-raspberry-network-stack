@@ -37,7 +37,7 @@ jobs:
 
       - name: Fetch and calculate metrics
         run: |
-          METRICS=$(curl -s --max-time 5 http://search-rive:9100/metrics)
+          METRICS=$(curl -s --max-time 5 http://raspberrypi:9100/metrics)
 
           NOW=$(date -u +"%H:%M UTC")
 
