@@ -20,8 +20,6 @@ services:
       - "--path.sysfs=/host/sys"
       - "--path.rootfs=/rootfs"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
-    ports:
-      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:9100:9100"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
