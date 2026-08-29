@@ -256,7 +256,7 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 - [x] Prometheus alert rules
 - [x] Tailscale subnet route / exit node provisioning
 - [ ] Syncthing for automated photo backups
-- [ ] Reverse proxy for internal service routing over Tailscale (Caddy / Traefik)
+- [x] Reverse proxy for internal service routing over Tailscale (Caddy / Traefik)
 - [ ] NAS backup automation
 - [ ] Expand homelab with an additional node (offload heavy services)
 - [x] Infrastructure as Code (Ansible / Docker Compose versioning)
