@@ -26,6 +26,8 @@ services:
       - /:/rootfs:ro
     read_only: true
     mem_limit: 30m
+    ports:
+      - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:9100:9100"
 
   grafana:
     image: grafana/grafana
