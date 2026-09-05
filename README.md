@@ -70,6 +70,8 @@ Caddy uses an internal CA for TLS certificates trusted by local clients.
 
 See [`docs/networking/tailscale-serve.md`](docs/networking/tailscale-serve.md) for the service mappings and configuration.
 
+---
+
 ## Internal DNS
 
 Services use the reserved `home.arpa` namespace.
