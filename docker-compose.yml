@@ -1,4 +1,17 @@
 services:
+  caddy:
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    container_name: caddy
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
+
   prometheus:
     image: prom/prometheus
     container_name: prometheus
