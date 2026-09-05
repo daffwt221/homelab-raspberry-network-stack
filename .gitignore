@@ -1,3 +1,11 @@
 .env
 group_vars/all.yml
 *.retry
+
+# Caddy runtime
+caddy/data/
+caddy/config/
+
+# Certificates
+*.crt
+*.key

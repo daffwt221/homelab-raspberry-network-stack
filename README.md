@@ -52,6 +52,12 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 - Subnet router for `192.168.1.0/24`
 - Exit node capability for full-tunnel routing
 
+### Private HTTPS access
+
+Container web interfaces are bound to `127.0.0.1` and exposed to tailnet clients through Tailscale Serve. Tailscale terminates HTTPS and reverse-proxies requests to the local Docker services.
+
+See [`docs/networking/tailscale-serve.md`](docs/networking/tailscale-serve.md) for the service mappings and configuration.
+
 ### Containers
 
 - Docker
@@ -256,7 +262,7 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 - [x] Prometheus alert rules
 - [x] Tailscale subnet route / exit node provisioning
 - [ ] Syncthing for automated photo backups
-- [x] Reverse proxy for internal service routing over Tailscale (Caddy / Traefik)
+- [x] Private HTTPS reverse proxy with Tailscale Serve
 - [ ] NAS backup automation
 - [ ] Expand homelab with an additional node (offload heavy services)
 - [x] Infrastructure as Code (Ansible / Docker Compose versioning)

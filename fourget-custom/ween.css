@@ -1,0 +1,33 @@
+:root
+{
+        --accent : #f79e98;
+        --1d2021 : #180d0c;
+        --282828 : #180d0c;
+        --3c3836 : #251615;
+        --504945 : #251615;
+        --928374 : var(--accent);
+        --a89984 : #d8c5c4;
+        --bdae93 : #d8c5c4;
+        --8ec07c : var(--accent);
+        --ebdbb2 : #d8c5c4;
+        --comment: #928374;
+        --default: #DCC9BC;
+        --keyword: #F07342;
+        --string : var(--accent);
+        --green  : #959A6B;
+        --yellow : #E39C45;
+        --red    : #CF223E;
+        --white  : var(--a89984);
+        --black  : var(--1d2021);
+        --hover  : #b18884
+}
+
+html::before{
+	content:"";
+	width:209px;
+	height:190px;
+	background-image:url("/static/ween.gif");
+	position:fixed;
+	bottom:0;
+	right:0;
+}
