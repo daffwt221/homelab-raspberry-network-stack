@@ -51,12 +51,38 @@ Homelab built on a Raspberry Pi 2B running as an always-on infrastructure node. 
 - Tailscale (WireGuard-based mesh VPN)
 - Subnet router for `192.168.1.0/24`
 - Exit node capability for full-tunnel routing
+- Split DNS routing for internal services
 
 ### Private HTTPS access
 
-Container web interfaces are bound to `127.0.0.1` and exposed to tailnet clients through Tailscale Serve. Tailscale terminates HTTPS and reverse-proxies requests to the local Docker services.
+Internal services are exposed through a Caddy reverse proxy using private HTTPS.
+
+DNS resolution is handled by Pi-hole with the `home.arpa` namespace:
+
+- `grafana.home.arpa`
+- `4get.home.arpa`
+- `portainer.home.arpa`
+- `prometheus.home.arpa`
+
+Pi-hole resolves service names to the Raspberry Pi Tailscale address, and Caddy routes HTTPS requests to the correct local Docker service.
+
+Caddy uses an internal CA for TLS certificates trusted by local clients.
 
 See [`docs/networking/tailscale-serve.md`](docs/networking/tailscale-serve.md) for the service mappings and configuration.
+
+## Internal DNS
+
+Services use the reserved `home.arpa` namespace.
+
+DNS flow:
+
+Client → Tailscale DNS → Pi-hole → Raspberry Pi → Caddy → Docker service
+
+Examples:
+
+- https://grafana.home.arpa
+- https://4get.home.arpa
+- https://portainer.home.arpa
 
 ### Containers
 
@@ -159,36 +185,60 @@ For manual deployment, set `SERVICE_BIND_ADDRESS` in `.env` to the output of `ta
 
 ## Architecture
 
-The Pi serves as subnet router, exit node, DNS server (Pi-hole), Docker host, and monitoring node.
+The Pi serves as subnet router, exit node, DNS server (Pi-hole), reverse proxy (Caddy), Docker host, and monitoring node.
 
 ```
-                      ┌─────────────────────┐
-                      │      Internet       │
-                      └──────────┬──────────┘
-                                 │
-                      ┌──────────▼──────────┐
-                      │     Tailscale       │
-                      │   (WireGuard VPN)   │
-                      └──────────┬──────────┘
-                                 │
-          ┌──────────────────────▼──────────────────────┐
-          │              Raspberry Pi 2B                │
-          │                                             │
-          │  ┌────────────── Docker ───────────────┐    │
-          │  │  Grafana        (dashboards)        │    │
-          │  │  Prometheus     (metrics)           │    │
-          │  │  Node Exporter  (host metrics)      │    │
-          │  │  Portainer      (container mgmt)    │    │
-          │  │  4get           (search frontend)   │    │
-          │  └─────────────────────────────────────┘    │
-          │                                             │
-          │  Pi-hole + Unbound  (DNS / ad-blocking)     │
-          │  Samba              (NAS)                   │
-          │  log2ram            (SD card protection)    │
-          │  Watchdog           (auto-reboot on hang)   │
-          │                                             │
-          │  Storage: SD card (OS) + NVMe (data/swap)   │
-          └──────────────────┬──────────────────────────┘
+                                  Internet
+                                     │
+                          ┌──────────▼──────────┐
+                          │     Tailscale       │
+                          │   (WireGuard VPN)   │
+                          └──────────┬──────────┘
+                                     │
+                    ┌────────────────▼────────────────┐
+                    │         Client Devices          │
+                    │  Laptop / Phone / Remote LAN    │
+                    └────────────────┬────────────────┘
+                                     │
+                          DNS: *.home.arpa
+                                     │
+                    ┌────────────────▼────────────────┐
+                    │          Pi-hole DNS            │
+                    │  Internal service resolution    │
+                    │                                 │
+                    │ grafana.home.arpa               │
+                    │ 4get.home.arpa                  │
+                    │ portainer.home.arpa             │
+                    │ prometheus.home.arpa            │
+                    └────────────────┬────────────────┘
+                                     │
+          ┌──────────────────────────▼──────────────────────────┐
+          │                    Raspberry Pi 2B                  │
+          │                                                      │
+          │  ┌──────────────── Caddy HTTPS ────────────────┐    │
+          │  │ Internal CA + reverse proxy                 │    │
+          │  │                                             │    │
+          │  │  grafana.home.arpa      → localhost:3000    │    │
+          │  │  4get.home.arpa         → localhost:8080    │    │
+          │  │  portainer.home.arpa    → localhost:9000    │    │
+          │  │  prometheus.home.arpa   → localhost:9090    │    │
+          │  └─────────────────────────────────────────────┘    │
+          │                                                      │
+          │  ┌────────────── Docker ───────────────┐            │
+          │  │  Grafana        (dashboards)         │            │
+          │  │  Prometheus     (metrics)            │            │
+          │  │  Node Exporter  (host metrics)       │            │
+          │  │  Portainer      (container mgmt)     │            │
+          │  │  4get           (search frontend)    │            │
+          │  └─────────────────────────────────────┘            │
+          │                                                      │
+          │  Pi-hole + Unbound  (DNS / ad-blocking)              │
+          │  Samba              (NAS)                            │
+          │  log2ram            (SD card protection)             │
+          │  Watchdog           (auto-reboot on hang)            │
+          │                                                      │
+          │  Storage: SD card (OS) + NVMe (data/swap)            │
+          └──────────────────┬───────────────────────────────────┘
                              │
                     ┌────────▼────────┐
                     │    Home LAN     │
@@ -198,7 +248,12 @@ The Pi serves as subnet router, exit node, DNS server (Pi-hole), Docker host, an
 Clients (via Tailscale mesh):
   - Laptop
   - Phone
-  - Restricted network  →  exit node routing
+  - Restricted networks → exit node routing
+```
+
+Traffic flow:
+
+Client → Tailscale → Pi-hole DNS → Caddy HTTPS → Docker service
 ```
 
 All services run as Docker containers. No inbound ports are open. Remote access goes exclusively through Tailscale's encrypted overlay network.
@@ -262,7 +317,8 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 - [x] Prometheus alert rules
 - [x] Tailscale subnet route / exit node provisioning
 - [ ] Syncthing for automated photo backups
-- [x] Private HTTPS reverse proxy with Tailscale Serve
+- [x] Private HTTPS reverse proxy with Caddy
+- [x] Internal DNS with Pi-hole + home.arpa
 - [ ] NAS backup automation
 - [ ] Expand homelab with an additional node (offload heavy services)
 - [x] Infrastructure as Code (Ansible / Docker Compose versioning)
