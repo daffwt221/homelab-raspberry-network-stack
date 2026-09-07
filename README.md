@@ -268,6 +268,10 @@ Prometheus scrapes host-level metrics from Node Exporter at regular intervals. G
 
 Basic Prometheus alert rules are included for unreachable Node Exporter, high memory usage, swap usage, low disk space, and sustained load.
 
+The GitHub Actions badge update workflow runs through the private homelab network using Tailscale, internal DNS resolution, and Caddy HTTPS validation.
+
+See [`GitHub Actions Metrics Pipeline`](.github/docs/github-actions-pipeline.md) for the complete architecture and security model.
+
 ---
 
 ## Network Behavior
