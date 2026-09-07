@@ -37,8 +37,12 @@ jobs:
 
       - name: Fetch and calculate metrics
         run: |
-          METRICS=$(curl -s --max-time 5 https://node-exporter.home.arpa/metrics )
-
+          set -x  # Enable debug output
+          METRICS=$(curl -s --max-time 5 https://node-exporter.home.arpa/metrics 2>&1)
+          CURL_EXIT=$?
+          echo "Curl exit code: $CURL_EXIT"
+          echo "Metrics length: ${#METRICS}"
+          
           NOW=$(date -u +"%H:%M UTC")
 
           if [ -z "$METRICS" ]; then
