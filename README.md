@@ -70,26 +70,32 @@ Caddy uses an internal CA for TLS certificates trusted by local clients.
 
 ---
 
-## Internal DNS
+### Internal DNS
 
 Services use the reserved `home.arpa` namespace.
 
-DNS flow:
+Pi-hole and Unbound are host-level prerequisites in the current repository; the
+Ansible playbook does not install or configure them yet.
 
-Client → Tailscale DNS → Pi-hole → Raspberry Pi → Caddy → Docker service
+DNS lookup:
+
+`Client → Tailscale DNS → Pi-hole → Raspberry Pi Tailscale IP`
 
 Examples:
 
-- https://grafana.home.arpa
-- https://4get.home.arpa
-- https://portainer.home.arpa
+- <https://grafana.home.arpa>
+- <https://4get.home.arpa>
+- <https://portainer.home.arpa>
+- <https://prometheus.home.arpa>
+- <https://node-exporter.home.arpa>
+- <https://pihole.home.arpa>
 
 ### Containers
 
 - Docker
 - Portainer (management UI)
 
-### Monitoring
+### Monitoring components
 
 - Prometheus + Node Exporter → Grafana
 - Tracks CPU, memory, disk, network, and load metrics
@@ -137,7 +143,7 @@ compose_path: /home/pi/homelab-stack
 compose_file: docker-compose.yml
 
 docker_data_root: /mnt/nvme/docker
-service_bind_address: tailscale
+service_bind_address: 127.0.0.1
 
 tailscale_authkey: XXXXX
 tailscale_hostname: homelab-pi
@@ -148,13 +154,30 @@ tailscale_advertise_exit_node: true
 You can generate a Tailscale auth key at [login.tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys).
 The auth key can also be supplied with the `TAILSCALE_AUTHKEY` environment variable for the first provisioning run.
 
-By default, the playbook resolves the node's Tailscale IPv4 address and binds the Docker-published services to that address only. This keeps access inside the tailnet and avoids router port forwarding entirely.
+By default, the playbook binds Docker-published backend ports to `127.0.0.1` and
+binds Caddy's HTTPS listener to the node's Tailscale IPv4 address. This prevents
+clients from bypassing Caddy while keeping service access inside the tailnet.
 
 Prometheus config and alert rules live in `prometheus/` and are copied by the playbook.
 
-Container data is stored under `docker_data_root`, so Grafana, Prometheus, and Portainer state can live on NVMe instead of the SD card. Volume permissions for Grafana and Prometheus are set automatically by the playbook. No manual `chown` required.
+Container data is stored under `docker_data_root`, so Caddy, Grafana, Prometheus,
+and Portainer state can live on NVMe instead of the SD card. Volume permissions
+are set automatically by the playbook. No manual `chown` is required.
 
 Memory limits are set per container in `docker-compose.yml` and tuned for the Pi 2B (1GB RAM). Adjust `mem_limit` values if running on different hardware.
+
+External images are pinned to explicit ARMv7-compatible releases to keep
+deployments reproducible. The stack currently uses Caddy `2.11.4`, Prometheus
+`3.5.5` LTS, Node Exporter `1.12.1`, Grafana `13.2.1-slim`, and Portainer
+`2.39.7-linux-arm-alpine`. Review and test version updates deliberately rather
+than tracking mutable `latest` tags.
+
+Healthchecks are configured for Caddy, Prometheus, Node Exporter, Grafana, and
+Portainer. Check their status after deployment with:
+
+```bash
+docker compose ps
+```
 
 The 4get scraper service is behind the optional Compose profile. To include it, run Compose with `--profile optional`.
 
@@ -176,10 +199,29 @@ If Docker is already set up, bring up the stack directly:
 
 ```bash
 cp .env.example .env
+$EDITOR .env
 docker compose up -d
 ```
 
-For manual deployment, set `SERVICE_BIND_ADDRESS` in `.env` to the output of `tailscale ip -4` if you want Tailscale-only access. Persistent data is stored under `DOCKER_DATA_ROOT` from `.env`.
+For manual deployment, keep `SERVICE_BIND_ADDRESS=127.0.0.1` and set
+`TAILSCALE_IP` in `.env` to the output of `tailscale ip -4`. Persistent data is
+stored under `DOCKER_DATA_ROOT` from `.env`.
+
+### Trust the private CA
+
+Caddy issues certificates from its private internal CA. After the first start,
+copy the generated root certificate out of the container:
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+```
+
+Import that certificate into the operating system or browser trust store, then
+verify the connection:
+
+```bash
+curl --cacert ./caddy-root.crt https://grafana.home.arpa
+```
 
 ---
 
@@ -187,76 +229,40 @@ For manual deployment, set `SERVICE_BIND_ADDRESS` in `.env` to the output of `ta
 
 The Pi serves as subnet router, exit node, DNS server (Pi-hole), reverse proxy (Caddy), Docker host, and monitoring node.
 
-```
-                                  Internet
-                                     │
-                          ┌──────────▼──────────┐
-                          │     Tailscale       │
-                          │   (WireGuard VPN)   │
-                          └──────────┬──────────┘
-                                     │
-                    ┌────────────────▼────────────────┐
-                    │         Client Devices          │
-                    │  Laptop / Phone / Remote LAN    │
-                    └────────────────┬────────────────┘
-                                     │
-                          DNS: *.home.arpa
-                                     │
-                    ┌────────────────▼────────────────┐
-                    │          Pi-hole DNS            │
-                    │  Internal service resolution    │
-                    │                                 │
-                    │ grafana.home.arpa               │
-                    │ 4get.home.arpa                  │
-                    │ portainer.home.arpa             │
-                    │ prometheus.home.arpa            │
-                    └────────────────┬────────────────┘
-                                     │
-          ┌──────────────────────────▼──────────────────────────┐
-          │                    Raspberry Pi 2B                  │
-          │                                                      │
-          │  ┌──────────────── Caddy HTTPS ────────────────┐    │
-          │  │ Internal CA + reverse proxy                 │    │
-          │  │                                             │    │
-          │  │  grafana.home.arpa      → localhost:3000    │    │
-          │  │  4get.home.arpa         → localhost:8080    │    │
-          │  │  portainer.home.arpa    → localhost:9000    │    │
-          │  │  prometheus.home.arpa   → localhost:9090    │    │
-          │  └─────────────────────────────────────────────┘    │
-          │                                                      │
-          │  ┌────────────── Docker ───────────────┐            │
-          │  │  Grafana        (dashboards)         │            │
-          │  │  Prometheus     (metrics)            │            │
-          │  │  Node Exporter  (host metrics)       │            │
-          │  │  Portainer      (container mgmt)     │            │
-          │  │  4get           (search frontend)    │            │
-          │  └─────────────────────────────────────┘            │
-          │                                                      │
-          │  Pi-hole + Unbound  (DNS / ad-blocking)              │
-          │  Samba              (NAS)                            │
-          │  log2ram            (SD card protection)             │
-          │  Watchdog           (auto-reboot on hang)            │
-          │                                                      │
-          │  Storage: SD card (OS) + NVMe (data/swap)            │
-          └──────────────────┬───────────────────────────────────┘
-                             │
-                    ┌────────▼────────┐
-                    │    Home LAN     │
-                    │ 192.168.1.0/24  │
-                    └─────────────────┘
+```mermaid
+flowchart LR
+    Client[Remote client<br/>Laptop or phone]
 
-Clients (via Tailscale mesh):
-  - Laptop
-  - Phone
-  - Restricted networks → exit node routing
+    subgraph Pi[Raspberry Pi 2B]
+        TS[Tailscale<br/>subnet router and exit node]
+        DNS[Pi-hole and Unbound<br/>host prerequisite]
+        Caddy[Caddy HTTPS<br/>internal CA]
+        Apps[Docker services<br/>Grafana, Prometheus, Node Exporter, Portainer<br/>4get optional]
+        Host[Host services<br/>Samba, log2ram, watchdog]
+    end
+    LAN[Home LAN<br/>192.168.1.0/24]
+    Internet[Internet]
+
+    Client -->|Encrypted overlay| TS
+    TS -->|DNS query for *.home.arpa| DNS
+    DNS -.->|Returns Pi Tailscale IP| Client
+    TS -->|HTTPS| Caddy
+    Caddy -->|Loopback-only backends| Apps
+    TS -->|Subnet route| LAN
+    TS -->|Exit-node traffic| Internet
 ```
 
-Traffic flow:
+### Traffic flow
 
-Client → Tailscale → Pi-hole DNS → Caddy HTTPS → Docker service
+```text
+DNS lookup:    Client → Tailscale DNS → Pi-hole → Raspberry Pi Tailscale IP
+HTTPS request: Client → Tailscale overlay → Caddy → Docker service
 ```
 
-All services run as Docker containers. No inbound ports are open. Remote access goes exclusively through Tailscale's encrypted overlay network.
+Application and monitoring services run in Docker. Tailscale, Samba, log2ram,
+the hardware watchdog, and the current Pi-hole/Unbound setup run on the host.
+No router port forwarding is required; remote HTTPS access is bound to the
+Tailscale interface.
 
 ---
 
@@ -280,13 +286,21 @@ See [`GitHub Actions Metrics Pipeline`](.github/docs/github-actions-pipeline.md)
 
 **Restricted networks (e.g. university Wi-Fi):** Exit node is enabled, routing all traffic through the Pi. DNS filtering stays active.
 
-No router port forwarding is required or expected. Remote access is handled through Tailscale, and container ports are bound to the Tailscale address by default when deployed with Ansible.
+No router port forwarding is required or expected. Remote access is handled
+through Tailscale, Caddy listens on the Tailscale address, and container backend
+ports are bound to loopback by default when deployed with Ansible.
 
 ---
 
 ## Design Rationale
 
-No port forwarding, no public-facing services. The overlay VPN handles all remote access, which keeps the attack surface minimal. Docker provides service isolation and portability. Portainer handles container lifecycle. Prometheus + Grafana give visibility into system health. log2ram reduces SD card wear, and the hardware watchdog ensures automatic recovery from hangs. Ansible ensures the whole setup is reproducible and version-controlled.
+No port forwarding and no public-facing services. The overlay VPN handles remote
+access, Caddy is the only HTTPS entry point, and application backends remain on
+loopback. Docker provides service isolation and portability, while Portainer is
+treated as a privileged administration component because it can access the
+Docker socket. Prometheus + Grafana provide system visibility, log2ram reduces
+SD card wear, and the hardware watchdog provides automatic recovery from hangs.
+Ansible keeps the setup reproducible and version-controlled.
 
 ---
 
@@ -298,8 +312,8 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 | Open port exposure | Overlay VPN (Tailscale) for all access |
 | Unencrypted traffic on public Wi-Fi | Exit node + WireGuard encryption |
 | DNS tracking / malicious domains | Pi-hole DNS filtering |
-| Container breakout | Docker isolation + limited permissions |
-| Management plane exposure | Bind services to the Tailscale IP via `SERVICE_BIND_ADDRESS` |
+| Container breakout / Docker socket abuse | Loopback-only backends, tailnet-restricted management access, and explicit treatment of Portainer as a privileged component |
+| Management plane exposure | Bind Caddy to the Tailscale IP and keep backend services on loopback |
 
 ---
 
@@ -311,6 +325,8 @@ No port forwarding, no public-facing services. The overlay VPN handles all remot
 - Dependent on Tailscale's coordination server
 - Not suitable for compute-heavy workloads
 - Portainer requires Docker socket access, which should be treated as highly privileged
+- Pi-hole and Unbound are documented host prerequisites but are not yet provisioned by Ansible
+- The local `fourget-armhf` image must be built separately before enabling the optional profile
 
 ---
 

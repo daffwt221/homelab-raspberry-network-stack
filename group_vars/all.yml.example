@@ -3,7 +3,7 @@ compose_path: /home/pi/homelab-stack
 compose_file: docker-compose.yml
 
 docker_data_root: /mnt/nvme/docker
-service_bind_address: tailscale
+service_bind_address: 127.0.0.1
 
 tailscale_authkey: XXXXX
 tailscale_hostname: homelab-pi

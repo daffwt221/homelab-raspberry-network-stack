@@ -1,29 +1,34 @@
+{
+	auto_https disable_redirects
+	default_bind {$TAILSCALE_IP}
+}
+
 4get.home.arpa {
-    tls internal
-    reverse_proxy localhost:8080
+	tls internal
+	reverse_proxy localhost:8080
 }
 
 grafana.home.arpa {
-    tls internal
-    reverse_proxy localhost:3000
+	tls internal
+	reverse_proxy localhost:3000
 }
 
 portainer.home.arpa {
-    tls internal
-    reverse_proxy localhost:9000
+	tls internal
+	reverse_proxy localhost:9000
 }
 
 prometheus.home.arpa {
-    tls internal
-    reverse_proxy localhost:9090
+	tls internal
+	reverse_proxy localhost:9090
 }
 
 node-exporter.home.arpa {
-    tls internal
-    reverse_proxy localhost:9100
+	tls internal
+	reverse_proxy localhost:9100
 }
 
 pihole.home.arpa {
-    tls internal
-    reverse_proxy localhost:8081
+	tls internal
+	reverse_proxy localhost:8081
 }

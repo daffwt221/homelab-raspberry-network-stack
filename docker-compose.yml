@@ -6,14 +6,21 @@ services:
     container_name: caddy
     restart: unless-stopped
     network_mode: host
+    environment:
+      TAILSCALE_IP: '${TAILSCALE_IP:?Set TAILSCALE_IP in .env}'
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./caddy/data:/data
-      - ./caddy/config:/config
-      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
+      - ${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/caddy/data:/data
+      - ${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/caddy/config:/config
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q --spider http://127.0.0.1:2019/config/ || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:v3.5.5
     container_name: prometheus
     restart: unless-stopped
     ports:
@@ -28,9 +35,15 @@ services:
       - "--storage.tsdb.retention.time=7d"
       - "--storage.tsdb.wal-compression"
     mem_limit: 150m
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q --spider http://localhost:9090/-/ready || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   node-exporter:
-    image: prom/node-exporter
+    image: prom/node-exporter:v1.12.1
     container_name: node-exporter
     restart: unless-stopped
     command:
@@ -44,11 +57,17 @@ services:
       - /:/rootfs:ro
     read_only: true
     mem_limit: 30m
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q --spider http://localhost:9100/metrics || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     ports:
       - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:9100:9100"
 
   grafana:
-    image: grafana/grafana
+    image: grafana/grafana:13.2.1-slim
     container_name: grafana
     restart: unless-stopped
     ports:
@@ -56,9 +75,15 @@ services:
     volumes:
       - ${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/grafana:/var/lib/grafana
     mem_limit: 220m
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q --spider http://localhost:3000/api/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   portainer:
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.39.7-linux-arm-alpine
     container_name: portainer
     restart: unless-stopped
     ports:
@@ -69,6 +94,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/portainer:/data
     mem_limit: 80m
+    healthcheck:
+      test: [CMD, /portainer, --health-check]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   fourget:
     image: fourget-armhf

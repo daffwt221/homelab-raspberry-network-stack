@@ -8,7 +8,7 @@
       stack_path: "{{ compose_path | default('/home/pi/homelab-stack') }}"
       stack_compose_file: "{{ compose_file | default('docker-compose.yml') }}"
       docker_storage_path: "{{ docker_data_root | default('/mnt/nvme/docker') }}"
-      service_bind_address_requested: "{{ service_bind_address | default('tailscale') }}"
+      service_bind_address_requested: "{{ service_bind_address | default('127.0.0.1') }}"
       tailscale_authkey_effective: "{{ tailscale_authkey | default(lookup('env', 'TAILSCALE_AUTHKEY'), true) }}"
       tailscale_hostname_effective: "{{ tailscale_hostname | default('homelab-pi') }}"
       tailscale_routes_effective: "{{ tailscale_advertise_routes | default('192.168.1.0/24') }}"
@@ -71,7 +71,6 @@
         command: tailscale ip -4
         register: tailscale_ipv4
         changed_when: false
-        when: service_bind_address_requested == 'tailscale'
 
       - name: Start Samba services
         service:
@@ -126,6 +125,7 @@
             mode: "0755"
         loop:
             - "{{ stack_path }}"
+            - "{{ stack_path }}/caddy"
             - "{{ stack_path }}/prometheus"
 
       - name: Create NVMe-backed Docker data directories
@@ -137,6 +137,8 @@
             mode: "0755"
         loop:
             - { path: "{{ docker_storage_path }}", owner: "0", group: "0" }
+            - { path: "{{ docker_storage_path }}/caddy/data", owner: "1000", group: "1000" }
+            - { path: "{{ docker_storage_path }}/caddy/config", owner: "1000", group: "1000" }
             - { path: "{{ docker_storage_path }}/grafana", owner: "472", group: "472" }
             - { path: "{{ docker_storage_path }}/prometheus", owner: "65534", group: "65534" }
             - { path: "{{ docker_storage_path }}/portainer", owner: "0", group: "0" }
@@ -157,6 +159,17 @@
             group: "{{ stack_user }}"
             mode: "0644"
 
+      - name: Copy Caddy build and configuration
+        copy:
+            src: "./caddy/{{ item }}"
+            dest: "{{ stack_path }}/caddy/{{ item }}"
+            owner: "{{ stack_user }}"
+            group: "{{ stack_user }}"
+            mode: "0644"
+        loop:
+            - Caddyfile
+            - Dockerfile
+
       - name: Write Docker Compose environment
         copy:
             dest: "{{ stack_path }}/.env"
@@ -165,7 +178,8 @@
             mode: "0644"
             content: |
                 DOCKER_DATA_ROOT={{ docker_storage_path }}
-                SERVICE_BIND_ADDRESS={{ tailscale_ipv4.stdout if service_bind_address_requested == 'tailscale' else service_bind_address_requested }}
+                SERVICE_BIND_ADDRESS={{ '127.0.0.1' if service_bind_address_requested == 'tailscale' else service_bind_address_requested }}
+                TAILSCALE_IP={{ tailscale_ipv4.stdout }}
 
       - name: Run containers
         command: docker compose -f {{ stack_compose_file }} up -d
