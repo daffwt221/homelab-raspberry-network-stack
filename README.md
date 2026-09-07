@@ -107,7 +107,7 @@ Examples:
 
 ### Resilience
 
-- log2ram (reduces SD card writes by buffering logs in RAM)
+- log2ram (optional; reduces SD card writes by buffering logs in RAM)
 - Watchdog (automatic reboot on system hang)
 
 ### Provisioning
@@ -144,6 +144,7 @@ compose_file: docker-compose.yml
 
 docker_data_root: /mnt/nvme/docker
 service_bind_address: 127.0.0.1
+enable_log2ram: false
 
 tailscale_authkey: XXXXX
 tailscale_hostname: homelab-pi
@@ -157,6 +158,11 @@ The auth key can also be supplied with the `TAILSCALE_AUTHKEY` environment varia
 By default, the playbook binds Docker-published backend ports to `127.0.0.1` and
 binds Caddy's HTTPS listener to the node's Tailscale IPv4 address. This prevents
 clients from bypassing Caddy while keeping service access inside the tailnet.
+
+log2ram is disabled by default because it is not supplied by every Raspberry Pi
+OS package source. To enable it, first configure a trusted repository that
+provides the `log2ram` package, then set `enable_log2ram: true`. The playbook does
+not add a Debian repository to Raspberry Pi OS.
 
 Prometheus config and alert rules live in `prometheus/` and are copied by the playbook.
 
@@ -189,7 +195,7 @@ Once configured, provision and deploy everything with a single command:
 ansible-playbook -i inventory.ini playbook.yml
 ```
 
-The playbook handles installing Docker, Docker Compose, Tailscale, and Samba; authenticating the node; enabling IPv4 forwarding; advertising the subnet route and exit node; configuring log2ram and the hardware watchdog; copying Prometheus configuration; and deploying the container stack automatically.
+The playbook handles installing Docker, Docker Compose, Tailscale, and Samba; authenticating the node; enabling IPv4 forwarding; advertising the subnet route and exit node; configuring the hardware watchdog; optionally enabling log2ram when requested; copying Prometheus configuration; and deploying the container stack automatically.
 
 After the first Tailscale run, approve the advertised subnet route and exit node in the Tailscale admin console if required by your tailnet policy.
 
@@ -259,8 +265,8 @@ DNS lookup:    Client → Tailscale DNS → Pi-hole → Raspberry Pi Tailscale I
 HTTPS request: Client → Tailscale overlay → Caddy → Docker service
 ```
 
-Application and monitoring services run in Docker. Tailscale, Samba, log2ram,
-the hardware watchdog, and the current Pi-hole/Unbound setup run on the host.
+Application and monitoring services run in Docker. Tailscale, Samba, the
+hardware watchdog, optional log2ram, and the current Pi-hole/Unbound setup run on the host.
 No router port forwarding is required; remote HTTPS access is bound to the
 Tailscale interface.
 
@@ -298,8 +304,8 @@ No port forwarding and no public-facing services. The overlay VPN handles remote
 access, Caddy is the only HTTPS entry point, and application backends remain on
 loopback. Docker provides service isolation and portability, while Portainer is
 treated as a privileged administration component because it can access the
-Docker socket. Prometheus + Grafana provide system visibility, log2ram reduces
-SD card wear, and the hardware watchdog provides automatic recovery from hangs.
+Docker socket. Prometheus + Grafana provide system visibility, optional log2ram
+can reduce SD card wear, and the hardware watchdog provides automatic recovery from hangs.
 Ansible keeps the setup reproducible and version-controlled.
 
 ---

@@ -28,6 +28,11 @@
         when: not tailscale_state.stat.exists
 
   tasks:
+      - name: Remove legacy Debian repository previously added for log2ram
+        file:
+            path: /etc/apt/sources.list.d/bookworm.list
+            state: absent
+
       - name: Install base packages
         apt:
             name:
@@ -81,26 +86,19 @@
             - smbd
             - nmbd
 
-      - name: Add Debian bookworm repo for log2ram
-        lineinfile:
-            path: /etc/apt/sources.list.d/bookworm.list
-            line: 'deb http://deb.debian.org/debian bookworm main'
-            create: true
-        when: enable_log2ram | default(true) | bool
-
       - name: Install log2ram
         apt:
             name: log2ram
             state: present
             update_cache: true
-        when: enable_log2ram | default(true) | bool
+        when: enable_log2ram | default(false) | bool
 
       - name: Enable log2ram
         service:
             name: log2ram
             state: started
             enabled: true
-        when: enable_log2ram | default(true) | bool
+        when: enable_log2ram | default(false) | bool
 
       - name: Enable hardware watchdog
         lineinfile:
