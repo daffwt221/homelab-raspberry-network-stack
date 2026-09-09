@@ -76,6 +76,8 @@
         command: tailscale ip -4
         register: tailscale_ipv4
         changed_when: false
+        tags:
+          - always
 
       - name: Start Samba services
         service:
@@ -178,6 +180,8 @@
                 DOCKER_DATA_ROOT={{ docker_storage_path }}
                 SERVICE_BIND_ADDRESS={{ '127.0.0.1' if service_bind_address_requested == 'tailscale' else service_bind_address_requested }}
                 TAILSCALE_IP={{ tailscale_ipv4.stdout }}
+        tags:
+          - compose_environment
 
       - name: Run containers
         command: docker compose -f {{ stack_compose_file }} up -d
