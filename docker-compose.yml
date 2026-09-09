@@ -18,6 +18,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    mem_limit: 64m
 
   prometheus:
     image: prom/prometheus:v3.5.5
