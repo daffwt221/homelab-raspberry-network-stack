@@ -30,7 +30,8 @@ jobs:
         run: |
           sudo tailscale up \
             --authkey=${{ secrets.TAILSCALE_AUTHKEY }} \
-            --hostname=github-actions
+            --hostname=github-actions \
+            --accept-dns=false
 
       - name: Configure Tailscale DNS
         run: |
@@ -51,12 +52,16 @@ jobs:
         run: |
           tailscale status
           tailscale dns status
-          nslookup node-exporter.home.arpa
 
       - name: Fetch and calculate metrics
         run: |
           set -x  # Enable debug output
-          METRICS=$(curl -s --max-time 5 https://node-exporter.home.arpa/metrics )
+          METRICS=$(
+            curl --fail-with-body --silent --show-error \ 
+              --max-time 10 \ 
+              --resolve "node-exporter.home.arpa:443:${{ vars.NODE_EXPORTER_TAILSCALE_IP }}" \
+              https://node-exporter.home.arpa/metrics
+          )
           CURL_EXIT=$?
           echo "Curl exit code: $CURL_EXIT"
           echo "Metrics length: ${#METRICS}"
