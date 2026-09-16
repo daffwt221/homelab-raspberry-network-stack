@@ -32,6 +32,13 @@ jobs:
             --authkey=${{ secrets.TAILSCALE_AUTHKEY }} \
             --hostname=github-actions
 
+      - name: Configure Tailscale DNS
+        run: |
+          sudo tailscale set --accept-dns=true
+          sleep 3
+          # Test DNS resolution
+          nslookup 8.8.8.8 || true
+
       - name: Wait for network
         run: sleep 5
 
