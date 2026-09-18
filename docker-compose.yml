@@ -106,6 +106,8 @@ services:
     image: fourget-armhf
     container_name: fourget
     restart: unless-stopped
+    dns:
+      - 192.168.1.69
     ports:
       - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:8080:80"
     profiles:
