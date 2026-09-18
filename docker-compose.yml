@@ -110,4 +110,4 @@ services:
       - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:8080:80"
     profiles:
       - optional
-    mem_limit: 100m
+    mem_limit: 150m
