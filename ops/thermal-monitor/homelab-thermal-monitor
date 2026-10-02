@@ -6,6 +6,11 @@ LOG_FILE="${LOG_DIR}/thermal.log"
 TEXTFILE_DIR=/var/lib/node_exporter/textfile
 METRICS_FILE="${TEXTFILE_DIR}/homelab_thermal.prom"
 TMP_METRICS="${METRICS_FILE}.$$"
+LOG_TAG=homelab-thermal-monitor
+
+log() {
+    logger -t "$LOG_TAG" "$*"
+}
 
 mkdir -p "$LOG_DIR" "$TEXTFILE_DIR"
 
@@ -21,12 +26,19 @@ nvme_unsafe_shutdowns=""
 nvme_media_errors=""
 nvme_error_log_entries=""
 
+log "run started log_file=${LOG_FILE} metrics_file=${METRICS_FILE}"
+
 if command -v vcgencmd >/dev/null 2>&1; then
     pi_temp_celsius=$(vcgencmd measure_temp 2>/dev/null | sed -n "s/temp=\([0-9.]*\)'C/\1/p" || true)
     throttled=$(vcgencmd get_throttled 2>/dev/null | sed -n 's/throttled=//p' || true)
+else
+    log "vcgencmd unavailable; Pi temperature and throttling metrics will be unknown"
 fi
 
 smart_output=$(smartctl -a -T permissive /dev/sda 2>/dev/null || true)
+if [ -z "$smart_output" ]; then
+    log "smartctl returned no output for /dev/sda"
+fi
 nvme_temp_celsius=$(printf '%s\n' "$smart_output" | awk -F: '/^Temperature:/ {gsub(/ Celsius| /,"",$2); print $2; exit}')
 nvme_sensor1_celsius=$(printf '%s\n' "$smart_output" | awk -F: '/^Temperature Sensor 1:/ {gsub(/ Celsius| /,"",$2); print $2; exit}')
 nvme_sensor2_celsius=$(printf '%s\n' "$smart_output" | awk -F: '/^Temperature Sensor 2:/ {gsub(/ Celsius| /,"",$2); print $2; exit}')
@@ -81,4 +93,5 @@ printf '%s pi_temp_celsius=%s throttled=%s nvme_temp_celsius=%s nvme_sensor1_cel
 } > "$TMP_METRICS"
 
 mv "$TMP_METRICS" "$METRICS_FILE"
-logger -t homelab-thermal-monitor "logged thermal sample"
+log "sample logged pi_temp_celsius=${pi_temp_celsius:-unknown} throttled=${throttled:-unknown} nvme_temp_celsius=${nvme_temp_celsius:-unknown} nvme_sensor1_celsius=${nvme_sensor1_celsius:-unknown} nvme_sensor2_celsius=${nvme_sensor2_celsius:-unknown} nvme_percentage_used=${nvme_percentage_used:-unknown} nvme_power_cycles=${nvme_power_cycles:-unknown} nvme_unsafe_shutdowns=${nvme_unsafe_shutdowns:-unknown} nvme_media_errors=${nvme_media_errors:-unknown} nvme_error_log_entries=${nvme_error_log_entries:-unknown}"
+log "metrics written metrics_file=${METRICS_FILE}"

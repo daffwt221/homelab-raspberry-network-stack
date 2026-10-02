@@ -4,3 +4,5 @@ Description=Homelab thermal and NVMe SMART metrics logger
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/homelab-thermal-monitor
+StandardOutput=journal
+StandardError=journal
