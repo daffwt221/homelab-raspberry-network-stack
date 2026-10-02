@@ -37,7 +37,10 @@ jobs:
             .github/workflows/*.yml
 
       - name: Validate Docker Compose
-        run: COMPOSE_PROJECT_NAME=homelab docker compose config --quiet
+        run: |
+          COMPOSE_PROJECT_NAME=homelab \
+          TAILSCALE_IP=100.64.0.1 \
+          docker compose config --quiet
 
       - name: Validate Ansible syntax
         run: ansible-playbook -i inventory.ini playbook.yml --syntax-check
