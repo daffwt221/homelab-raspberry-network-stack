@@ -11,12 +11,19 @@ LOG_TAG=homelab-healthcheck
 REPORT_DIR=/var/log/homelab-healthcheck
 CRITICAL_CONTAINERS="caddy prometheus node-exporter grafana portainer"
 DNS_CHECK_HOST=google.com
+RUN_STARTED_AT=$(date +%s)
+
+log() {
+    logger -t "$LOG_TAG" "$*"
+}
 
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-    logger -t "$LOG_TAG" "previous run still active, skipping this run"
+    log "previous run still active, skipping this run"
     exit 0
 fi
+
+log "run started version=${VERSION} max_failures=${MAX_FAILURES} boot_cooldown_seconds=${BOOT_COOLDOWN_SECONDS}"
 
 uptime_seconds() {
     awk '{print int($1)}' /proc/uptime
@@ -78,7 +85,7 @@ write_report() {
         journalctl -t "$LOG_TAG" -n 80 --no-pager || true
     } > "$report" 2>&1
 
-    logger -t "$LOG_TAG" "wrote reboot report: ${report}"
+    log "wrote reboot report: ${report}"
 }
 
 fail() {
@@ -89,15 +96,15 @@ fail() {
     fi
     failures=$((failures + 1))
     printf '%s\n' "$failures" > "$STATE_FILE"
-    logger -t "$LOG_TAG" "failure ${failures}/${MAX_FAILURES}: ${reason}"
+    log "failure ${failures}/${MAX_FAILURES}: ${reason}"
 
     if [ "$failures" -ge "$MAX_FAILURES" ]; then
         if [ "$(uptime_seconds)" -lt "$BOOT_COOLDOWN_SECONDS" ]; then
-            logger -t "$LOG_TAG" "reboot suppressed during ${BOOT_COOLDOWN_SECONDS}s boot cooldown: ${reason}"
+            log "reboot suppressed during ${BOOT_COOLDOWN_SECONDS}s boot cooldown: ${reason}"
             write_report "boot cooldown suppressed reboot: ${reason}" "$failures"
             exit 1
         fi
-        logger -t "$LOG_TAG" "rebooting after ${failures} consecutive failures: ${reason}"
+        log "rebooting after ${failures} consecutive failures: ${reason}"
         write_report "$reason" "$failures"
         /bin/systemctl reboot
     fi
@@ -109,29 +116,42 @@ ok() {
     if [ -e "$STATE_FILE" ]; then
         rm -f "$STATE_FILE"
     fi
-    logger -t "$LOG_TAG" "ok"
+    duration=$(( $(date +%s) - RUN_STARTED_AT ))
+    log "run completed status=ok duration_seconds=${duration}"
 }
 
 run_check() {
     reason=$1
     shift
-    timeout 8 "$@" >/dev/null 2>&1 || fail "$reason"
+    log "check started: ${reason}; command=$*"
+    output=$(timeout 8 "$@" 2>&1) || {
+        status=$?
+        log "check failed: ${reason}; exit_status=${status}; output=$(printf '%s' "$output" | tr '\n' ' ' | cut -c1-500)"
+        fail "$reason"
+    }
+    log "check passed: ${reason}"
 }
 
 check_unhealthy_containers() {
+    log "check started: docker unhealthy containers"
     unhealthy=$(timeout 8 docker ps --filter health=unhealthy --format '{{.Names}}' 2>/dev/null || true)
-    [ -z "$unhealthy" ] && return 0
+    if [ -z "$unhealthy" ]; then
+        log "check passed: no unhealthy containers"
+        return 0
+    fi
+
+    log "unhealthy containers detected: $(printf '%s' "$unhealthy" | tr '\n' ' ')"
 
     for container in $unhealthy; do
         for critical in $CRITICAL_CONTAINERS; do
             if [ "$container" = "$critical" ]; then
-                logger -t "$LOG_TAG" "critical container unhealthy: ${container}, attempting restart"
+                log "critical container unhealthy: ${container}; action=restart"
                 timeout 30 docker restart "$container" >/dev/null 2>&1 || fail "critical container restart failed: ${container}"
                 sleep 20
 
                 state=$(timeout 8 docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo unknown)
                 if [ "$state" = "healthy" ] || [ "$state" = "none" ]; then
-                    logger -t "$LOG_TAG" "critical container recovered after restart: ${container} health=${state}"
+                    log "critical container recovered after restart: ${container} health=${state}"
                     return 0
                 fi
 
@@ -140,32 +160,40 @@ check_unhealthy_containers() {
         done
     done
 
-    logger -t "$LOG_TAG" "non-critical unhealthy containers ignored: $(printf '%s' "$unhealthy" | tr '\n' ' ')"
+    log "non-critical unhealthy containers ignored: $(printf '%s' "$unhealthy" | tr '\n' ' ')"
 }
 
 check_filesystem_rw() {
+    log "check started: filesystem read-write state"
     for mountpoint in / /mnt/nvme; do
         options=$(findmnt -no OPTIONS "$mountpoint" 2>/dev/null || true)
         [ -n "$options" ] || fail "${mountpoint} mount options unavailable"
+        log "mount options: ${mountpoint} ${options}"
         case ",${options}," in
             *,ro,*) fail "${mountpoint} is mounted read-only" ;;
         esac
     done
+    log "check passed: filesystem read-write state"
 }
 
 check_nvme_unsafe_shutdowns() {
+    log "check started: NVMe unsafe shutdown counter"
     current=$(get_nvme_unsafe_shutdowns || true)
     [ -n "$current" ] || fail "NVMe unsafe shutdown counter unavailable"
 
     if [ -r "$UNSAFE_SHUTDOWNS_STATE_FILE" ]; then
         previous=$(cat "$UNSAFE_SHUTDOWNS_STATE_FILE" 2>/dev/null || echo "$current")
+        log "NVMe unsafe shutdown counter previous=${previous} current=${current}"
         if [ "$current" -gt "$previous" ]; then
             printf '%s\n' "$current" > "$UNSAFE_SHUTDOWNS_STATE_FILE"
             fail "NVMe unsafe shutdown counter increased from ${previous} to ${current}"
         fi
+    else
+        log "NVMe unsafe shutdown baseline initialized current=${current}"
     fi
 
     printf '%s\n' "$current" > "$UNSAFE_SHUTDOWNS_STATE_FILE"
+    log "check passed: NVMe unsafe shutdown counter"
 }
 
 run_check "docker daemon not responding" docker info
@@ -181,5 +209,6 @@ run_check "DNS resolution failed for ${DNS_CHECK_HOST}" getent hosts "$DNS_CHECK
 if dmesg -T 2>/dev/null | tail -n 250 | grep -Eiq 'I/O error|Buffer I/O error|blk_update_request|EXT4-fs error|reset high-speed USB device|device descriptor read.*error|uas_eh_abort_handler|usb .* reset'; then
     fail "recent kernel log contains USB/storage/I/O errors"
 fi
+log "check passed: recent kernel log contains no USB/storage/I/O errors"
 
 ok
