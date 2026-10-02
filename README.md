@@ -187,8 +187,8 @@ docker compose ps
 ```
 
 The production Pi also runs a host-level recovery timer at
-`/etc/systemd/system/rive-healthcheck.timer`. It calls
-`/usr/local/sbin/rive-healthcheck` once per minute and reboots the node after
+`/etc/systemd/system/homelab-healthcheck.timer`. It calls
+`/usr/local/sbin/homelab-healthcheck` once per minute and reboots the node after
 three consecutive failures of Docker, Node Exporter, Grafana, Prometheus, the
 NVMe mount, or recent USB/storage kernel checks. This is documented in
 [nvme-usb-power-instability.md](docs/troubleshooting/nvme-usb-power-instability.md).

@@ -83,13 +83,13 @@ The hardware watchdog remains enabled, but it did not catch this incident becaus
 A stack-level healthcheck was added as a systemd timer:
 
 ```text
-/ops/healthcheck/rive-healthcheck
-/ops/healthcheck/rive-healthcheck.service
-/ops/healthcheck/rive-healthcheck.timer
+/ops/healthcheck/homelab-healthcheck
+/ops/healthcheck/homelab-healthcheck.service
+/ops/healthcheck/homelab-healthcheck.timer
 
-/usr/local/sbin/rive-healthcheck
-/etc/systemd/system/rive-healthcheck.service
-/etc/systemd/system/rive-healthcheck.timer
+/usr/local/sbin/homelab-healthcheck
+/etc/systemd/system/homelab-healthcheck.service
+/etc/systemd/system/homelab-healthcheck.timer
 ```
 
 The `ops/healthcheck/` files are the repository source. The `/usr/local/sbin`
@@ -109,7 +109,7 @@ It reboots only after 3 consecutive failed checks.
 Before rebooting, the script writes a report to:
 
 ```text
-/var/log/rive-healthcheck/
+/var/log/homelab-healthcheck/
 ```
 
 The report includes the reboot reason, consecutive failure count, failed
@@ -122,31 +122,31 @@ journal entries.
 Check healthcheck timer status:
 
 ```bash
-systemctl status rive-healthcheck.timer
+systemctl status homelab-healthcheck.timer
 ```
 
 View healthcheck logs:
 
 ```bash
-journalctl -t rive-healthcheck -n 50 --no-pager
+journalctl -t homelab-healthcheck -n 50 --no-pager
 ```
 
 List reboot reports:
 
 ```bash
-sudo ls -lah /var/log/rive-healthcheck/
+sudo ls -lah /var/log/homelab-healthcheck/
 ```
 
 Run the healthcheck manually:
 
 ```bash
-sudo /usr/local/sbin/rive-healthcheck
+sudo /usr/local/sbin/homelab-healthcheck
 ```
 
 Disable the healthcheck timer:
 
 ```bash
-sudo systemctl disable --now rive-healthcheck.timer
+sudo systemctl disable --now homelab-healthcheck.timer
 ```
 
 Track whether unsafe shutdowns keep increasing:

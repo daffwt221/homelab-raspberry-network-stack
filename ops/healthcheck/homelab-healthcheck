@@ -1,10 +1,10 @@
 #!/bin/sh
 set -eu
 
-STATE_FILE=/run/rive-healthcheck.failures
+STATE_FILE=/run/homelab-healthcheck.failures
 MAX_FAILURES=3
-LOG_TAG=rive-healthcheck
-REPORT_DIR=/var/log/rive-healthcheck
+LOG_TAG=homelab-healthcheck
+REPORT_DIR=/var/log/homelab-healthcheck
 
 write_report() {
     reason=$1
