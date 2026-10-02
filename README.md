@@ -120,6 +120,7 @@ Examples:
 
 | Incident | Root Cause | Doc |
 |---|---|---|
+| Host unreachable, Docker/SSH/Tailscale unavailable, metrics curl failures | NVMe USB power/bridge instability causing unclean shutdown and service loss | [nvme-usb-power-instability.md](docs/troubleshooting/nvme-usb-power-instability.md) |
 | System instability, DNS failures, container hangs | Swap thrashing on SD card under memory pressure | [swap-migration.md](docs/troubleshooting/swap-migration.md) |
 | Docker containers unresponsive despite showing as Up | Memory pressure causing inconsistent Docker state | [docker-unresponsive-incident.md](docs/troubleshooting/docker-unresponsive-incident.md) |
 
@@ -184,6 +185,13 @@ Portainer. Check their status after deployment with:
 ```bash
 docker compose ps
 ```
+
+The production Pi also runs a host-level recovery timer at
+`/etc/systemd/system/rive-healthcheck.timer`. It calls
+`/usr/local/sbin/rive-healthcheck` once per minute and reboots the node after
+three consecutive failures of Docker, Node Exporter, Grafana, Prometheus, the
+NVMe mount, or recent USB/storage kernel checks. This is documented in
+[nvme-usb-power-instability.md](docs/troubleshooting/nvme-usb-power-instability.md).
 
 The 4get scraper service is behind the optional Compose profile. To include it, run Compose with `--profile optional`.
 
