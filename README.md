@@ -210,7 +210,12 @@ Once configured, provision and deploy everything with a single command:
 ansible-playbook -i inventory.ini playbook.yml
 ```
 
-The playbook handles installing Docker, Docker Compose, Tailscale, and Samba; authenticating the node; enabling IPv4 forwarding; advertising the subnet route and exit node; configuring the hardware watchdog; optionally enabling log2ram when requested; copying Prometheus configuration; and deploying the container stack automatically.
+The playbook handles installing Docker, Docker Compose, Tailscale, Samba, and
+SMART tooling; authenticating the node; enabling IPv4 forwarding; advertising
+the subnet route and exit node; configuring the hardware watchdog; optionally
+enabling log2ram when requested; installing the homelab healthcheck and thermal
+monitor systemd timers; copying Prometheus configuration; and deploying the
+container stack automatically.
 
 After the first Tailscale run, approve the advertised subnet route and exit node in the Tailscale admin console if required by your tailnet policy.
 

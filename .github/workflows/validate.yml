@@ -1,0 +1,50 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible shellcheck yamllint
+
+      - name: Validate shell scripts
+        run: |
+          shellcheck ops/healthcheck/homelab-healthcheck
+          shellcheck ops/thermal-monitor/homelab-thermal-monitor
+
+      - name: Validate YAML
+        run: |
+          yamllint -d relaxed \
+            docker-compose.yml \
+            prometheus/prometheus.yml \
+            prometheus/alerts.yml \
+            playbook.yml \
+            group_vars/all.yml.example \
+            .github/workflows/*.yml
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+      - name: Validate Ansible syntax
+        run: ansible-playbook -i inventory.ini playbook.yml --syntax-check
+
+      - name: Validate Prometheus config
+        run: |
+          docker run --rm \
+            -v "$PWD/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v3.5.5 \
+            promtool check config /etc/prometheus/prometheus.yml
