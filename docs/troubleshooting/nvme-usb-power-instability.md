@@ -83,10 +83,17 @@ The hardware watchdog remains enabled, but it did not catch this incident becaus
 A stack-level healthcheck was added as a systemd timer:
 
 ```text
+/ops/healthcheck/rive-healthcheck
+/ops/healthcheck/rive-healthcheck.service
+/ops/healthcheck/rive-healthcheck.timer
+
 /usr/local/sbin/rive-healthcheck
 /etc/systemd/system/rive-healthcheck.service
 /etc/systemd/system/rive-healthcheck.timer
 ```
+
+The `ops/healthcheck/` files are the repository source. The `/usr/local/sbin`
+and `/etc/systemd/system` paths are the installed runtime locations on the Pi.
 
 The timer checks once per minute:
 
