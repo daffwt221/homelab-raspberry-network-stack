@@ -48,6 +48,7 @@ jobs:
       - name: Validate Prometheus config
         run: |
           docker run --rm \
+            --entrypoint promtool \
             -v "$PWD/prometheus:/etc/prometheus:ro" \
             prom/prometheus:v3.5.5 \
-            promtool check config /etc/prometheus/prometheus.yml
+            check config /etc/prometheus/prometheus.yml
