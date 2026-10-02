@@ -6,6 +6,12 @@ The timer runs once per minute and calls `rive-healthcheck`. The script reboots
 the node after 3 consecutive failures across Docker, Node Exporter, Grafana,
 Prometheus, the NVMe mount, or recent USB/storage kernel errors.
 
+Before rebooting, it writes a persistent report under:
+
+```text
+/var/log/rive-healthcheck/
+```
+
 ## Install
 
 ```bash
@@ -21,6 +27,7 @@ sudo systemctl enable --now rive-healthcheck.timer
 ```bash
 systemctl status rive-healthcheck.timer
 journalctl -t rive-healthcheck -n 50 --no-pager
+sudo ls -lah /var/log/rive-healthcheck/
 sudo /usr/local/sbin/rive-healthcheck
 ```
 
