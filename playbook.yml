@@ -75,6 +75,7 @@
             {% if tailscale_advertise_exit_node | default(true) | bool %}--advertise-exit-node{% endif %}
         no_log: true
         changed_when: not tailscale_state.stat.exists
+        when: not tailscale_state.stat.exists
 
       - name: Resolve Tailscale IPv4 address
         command: tailscale ip -4
