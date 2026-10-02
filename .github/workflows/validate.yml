@@ -28,7 +28,7 @@ jobs:
 
       - name: Validate YAML
         run: |
-          yamllint -d relaxed \
+          yamllint -c .yamllint \
             docker-compose.yml \
             prometheus/prometheus.yml \
             prometheus/alerts.yml \
@@ -37,7 +37,7 @@ jobs:
             .github/workflows/*.yml
 
       - name: Validate Docker Compose
-        run: docker compose config --quiet
+        run: COMPOSE_PROJECT_NAME=homelab docker compose config --quiet
 
       - name: Validate Ansible syntax
         run: ansible-playbook -i inventory.ini playbook.yml --syntax-check

@@ -30,7 +30,7 @@ jobs:
         run: |
           sudo tailscale up \
             --authkey=${{ secrets.TAILSCALE_AUTHKEY }} \
-            --hostname=github-actions 
+            --hostname=github-actions
 
       - name: Wait for network
         run: sleep 5
@@ -56,7 +56,7 @@ jobs:
           if [ "$CURL_EXIT" -ne 0 ]; then
             METRICS=""
           fi
-          
+
           NOW=$(date -u +"%H:%M UTC")
 
           if [ -z "$METRICS" ]; then
