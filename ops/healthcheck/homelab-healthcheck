@@ -1,0 +1,185 @@
+#!/bin/sh
+set -eu
+
+VERSION=2026-10-02.3
+STATE_FILE=/run/homelab-healthcheck.failures
+UNSAFE_SHUTDOWNS_STATE_FILE=/run/homelab-healthcheck.nvme_unsafe_shutdowns
+LOCK_FILE=/run/homelab-healthcheck.lock
+MAX_FAILURES=3
+BOOT_COOLDOWN_SECONDS=600
+LOG_TAG=homelab-healthcheck
+REPORT_DIR=/var/log/homelab-healthcheck
+CRITICAL_CONTAINERS="caddy prometheus node-exporter grafana portainer"
+DNS_CHECK_HOST=google.com
+
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    logger -t "$LOG_TAG" "previous run still active, skipping this run"
+    exit 0
+fi
+
+uptime_seconds() {
+    awk '{print int($1)}' /proc/uptime
+}
+
+get_nvme_unsafe_shutdowns() {
+    timeout 10 smartctl -a -T permissive /dev/sda 2>/dev/null |
+        awk -F: '/^Unsafe Shutdowns:/ {gsub(/,| /,"",$2); print $2; exit}'
+}
+
+write_report() {
+    reason=$1
+    failures=$2
+    timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
+    report="${REPORT_DIR}/${timestamp}-reboot-report.log"
+
+    mkdir -p "$REPORT_DIR"
+    {
+        echo "timestamp_utc=${timestamp}"
+        echo "script_version=${VERSION}"
+        echo "reason=${reason}"
+        echo "consecutive_failures=${failures}/${MAX_FAILURES}"
+        echo "uptime_seconds=$(uptime_seconds)"
+        echo
+        echo "== uptime =="
+        uptime || true
+        echo
+        echo "== systemd failed units =="
+        systemctl --failed --no-pager || true
+        echo
+        echo "== docker ps =="
+        timeout 8 docker ps -a || true
+        echo
+        echo "== docker unhealthy containers =="
+        timeout 8 docker ps --filter health=unhealthy || true
+        echo
+        echo "== mount /mnt/nvme =="
+        findmnt /mnt/nvme || true
+        echo
+        echo "== filesystem options =="
+        findmnt -no TARGET,OPTIONS / /mnt/nvme || true
+        echo
+        echo "== dns check =="
+        timeout 8 getent hosts "$DNS_CHECK_HOST" || true
+        echo
+        echo "== disk usage =="
+        df -h || true
+        echo
+        echo "== memory =="
+        free -h || true
+        echo
+        echo "== nvme smart summary =="
+        timeout 10 smartctl -a -T permissive /dev/sda 2>&1 | grep -E 'Temperature|Percentage Used|Power Cycles|Unsafe Shutdowns|Media and Data|Error Information' || true
+        echo
+        echo "== recent kernel USB/storage/I/O lines =="
+        dmesg -T 2>/dev/null | tail -n 350 | grep -Ei 'I/O error|Buffer I/O error|blk_update_request|EXT4-fs error|reset high-speed USB device|device descriptor read.*error|uas_eh_abort_handler|usb .* reset|sda|mmc|nvme|rtl9210' || true
+        echo
+        echo "== recent healthcheck journal =="
+        journalctl -t "$LOG_TAG" -n 80 --no-pager || true
+    } > "$report" 2>&1
+
+    logger -t "$LOG_TAG" "wrote reboot report: ${report}"
+}
+
+fail() {
+    reason=$1
+    failures=0
+    if [ -r "$STATE_FILE" ]; then
+        failures=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
+    fi
+    failures=$((failures + 1))
+    printf '%s\n' "$failures" > "$STATE_FILE"
+    logger -t "$LOG_TAG" "failure ${failures}/${MAX_FAILURES}: ${reason}"
+
+    if [ "$failures" -ge "$MAX_FAILURES" ]; then
+        if [ "$(uptime_seconds)" -lt "$BOOT_COOLDOWN_SECONDS" ]; then
+            logger -t "$LOG_TAG" "reboot suppressed during ${BOOT_COOLDOWN_SECONDS}s boot cooldown: ${reason}"
+            write_report "boot cooldown suppressed reboot: ${reason}" "$failures"
+            exit 1
+        fi
+        logger -t "$LOG_TAG" "rebooting after ${failures} consecutive failures: ${reason}"
+        write_report "$reason" "$failures"
+        /bin/systemctl reboot
+    fi
+
+    exit 1
+}
+
+ok() {
+    if [ -e "$STATE_FILE" ]; then
+        rm -f "$STATE_FILE"
+    fi
+    logger -t "$LOG_TAG" "ok"
+}
+
+run_check() {
+    reason=$1
+    shift
+    timeout 8 "$@" >/dev/null 2>&1 || fail "$reason"
+}
+
+check_unhealthy_containers() {
+    unhealthy=$(timeout 8 docker ps --filter health=unhealthy --format '{{.Names}}' 2>/dev/null || true)
+    [ -z "$unhealthy" ] && return 0
+
+    for container in $unhealthy; do
+        for critical in $CRITICAL_CONTAINERS; do
+            if [ "$container" = "$critical" ]; then
+                logger -t "$LOG_TAG" "critical container unhealthy: ${container}, attempting restart"
+                timeout 30 docker restart "$container" >/dev/null 2>&1 || fail "critical container restart failed: ${container}"
+                sleep 20
+
+                state=$(timeout 8 docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo unknown)
+                if [ "$state" = "healthy" ] || [ "$state" = "none" ]; then
+                    logger -t "$LOG_TAG" "critical container recovered after restart: ${container} health=${state}"
+                    return 0
+                fi
+
+                fail "critical container still unhealthy after restart: ${container} health=${state}"
+            fi
+        done
+    done
+
+    logger -t "$LOG_TAG" "non-critical unhealthy containers ignored: $(printf '%s' "$unhealthy" | tr '\n' ' ')"
+}
+
+check_filesystem_rw() {
+    for mountpoint in / /mnt/nvme; do
+        options=$(findmnt -no OPTIONS "$mountpoint" 2>/dev/null || true)
+        [ -n "$options" ] || fail "${mountpoint} mount options unavailable"
+        case ",${options}," in
+            *,ro,*) fail "${mountpoint} is mounted read-only" ;;
+        esac
+    done
+}
+
+check_nvme_unsafe_shutdowns() {
+    current=$(get_nvme_unsafe_shutdowns || true)
+    [ -n "$current" ] || fail "NVMe unsafe shutdown counter unavailable"
+
+    if [ -r "$UNSAFE_SHUTDOWNS_STATE_FILE" ]; then
+        previous=$(cat "$UNSAFE_SHUTDOWNS_STATE_FILE" 2>/dev/null || echo "$current")
+        if [ "$current" -gt "$previous" ]; then
+            printf '%s\n' "$current" > "$UNSAFE_SHUTDOWNS_STATE_FILE"
+            fail "NVMe unsafe shutdown counter increased from ${previous} to ${current}"
+        fi
+    fi
+
+    printf '%s\n' "$current" > "$UNSAFE_SHUTDOWNS_STATE_FILE"
+}
+
+run_check "docker daemon not responding" docker info
+check_unhealthy_containers
+run_check "node-exporter metrics not responding" curl -fsS --max-time 5 http://127.0.0.1:9100/metrics
+run_check "grafana port not responding" curl -fsS --max-time 5 http://127.0.0.1:3000/api/health
+run_check "prometheus health not responding" curl -fsS --max-time 5 http://127.0.0.1:9090/-/healthy
+run_check "/mnt/nvme is not mounted" mountpoint -q /mnt/nvme
+check_filesystem_rw
+check_nvme_unsafe_shutdowns
+run_check "DNS resolution failed for ${DNS_CHECK_HOST}" getent hosts "$DNS_CHECK_HOST"
+
+if dmesg -T 2>/dev/null | tail -n 250 | grep -Eiq 'I/O error|Buffer I/O error|blk_update_request|EXT4-fs error|reset high-speed USB device|device descriptor read.*error|uas_eh_abort_handler|usb .* reset'; then
+    fail "recent kernel log contains USB/storage/I/O errors"
+fi
+
+ok

@@ -5,6 +5,9 @@ compose_file: docker-compose.yml
 docker_data_root: /mnt/nvme/docker
 service_bind_address: 127.0.0.1
 enable_log2ram: false
+install_homelab_healthcheck: true
+install_homelab_thermal_monitor: true
+node_exporter_textfile_dir: /var/lib/node_exporter/textfile
 
 tailscale_authkey: XXXXX
 tailscale_hostname: homelab-pi

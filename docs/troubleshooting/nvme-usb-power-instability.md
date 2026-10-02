@@ -83,33 +83,55 @@ The hardware watchdog remains enabled, but it did not catch this incident becaus
 A stack-level healthcheck was added as a systemd timer:
 
 ```text
-/ops/healthcheck/rive-healthcheck
-/ops/healthcheck/rive-healthcheck.service
-/ops/healthcheck/rive-healthcheck.timer
+/ops/healthcheck/homelab-healthcheck
+/ops/healthcheck/homelab-healthcheck.service
+/ops/healthcheck/homelab-healthcheck.timer
 
-/usr/local/sbin/rive-healthcheck
-/etc/systemd/system/rive-healthcheck.service
-/etc/systemd/system/rive-healthcheck.timer
+/usr/local/sbin/homelab-healthcheck
+/etc/systemd/system/homelab-healthcheck.service
+/etc/systemd/system/homelab-healthcheck.timer
 ```
 
 The `ops/healthcheck/` files are the repository source. The `/usr/local/sbin`
 and `/etc/systemd/system` paths are the installed runtime locations on the Pi.
 
+A separate thermal monitor logs Raspberry Pi and NVMe SMART samples without
+taking automatic recovery action:
+
+```text
+/ops/thermal-monitor/homelab-thermal-monitor
+/ops/thermal-monitor/homelab-thermal-monitor.service
+/ops/thermal-monitor/homelab-thermal-monitor.timer
+
+/usr/local/sbin/homelab-thermal-monitor
+/etc/systemd/system/homelab-thermal-monitor.service
+/etc/systemd/system/homelab-thermal-monitor.timer
+/var/log/homelab-thermal/thermal.log
+/var/lib/node_exporter/textfile/homelab_thermal.prom
+```
+
 The timer checks once per minute:
 
 - Docker daemon responsiveness
+- critical Docker containers marked `unhealthy`; the script tries to restart
+  the affected container once before counting a failure
 - Node Exporter metrics on `127.0.0.1:9100`
 - Grafana health on `127.0.0.1:3000`
 - Prometheus health on `127.0.0.1:9090`
 - `/mnt/nvme` mount presence
+- `/` and `/mnt/nvme` read-write state
+- NVMe unsafe shutdown counter increases
+- local DNS resolution
 - recent kernel logs for USB, storage, I/O, or EXT4 errors
 
 It reboots only after 3 consecutive failed checks.
+Overlapping runs are skipped with a lock, and reboot is suppressed during the
+first 10 minutes after boot to reduce reboot-loop risk.
 
 Before rebooting, the script writes a report to:
 
 ```text
-/var/log/rive-healthcheck/
+/var/log/homelab-healthcheck/
 ```
 
 The report includes the reboot reason, consecutive failure count, failed
@@ -122,31 +144,31 @@ journal entries.
 Check healthcheck timer status:
 
 ```bash
-systemctl status rive-healthcheck.timer
+systemctl status homelab-healthcheck.timer
 ```
 
 View healthcheck logs:
 
 ```bash
-journalctl -t rive-healthcheck -n 50 --no-pager
+journalctl -t homelab-healthcheck -n 50 --no-pager
 ```
 
 List reboot reports:
 
 ```bash
-sudo ls -lah /var/log/rive-healthcheck/
+sudo ls -lah /var/log/homelab-healthcheck/
 ```
 
 Run the healthcheck manually:
 
 ```bash
-sudo /usr/local/sbin/rive-healthcheck
+sudo /usr/local/sbin/homelab-healthcheck
 ```
 
 Disable the healthcheck timer:
 
 ```bash
-sudo systemctl disable --now rive-healthcheck.timer
+sudo systemctl disable --now homelab-healthcheck.timer
 ```
 
 Track whether unsafe shutdowns keep increasing:

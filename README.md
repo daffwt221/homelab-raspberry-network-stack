@@ -167,6 +167,11 @@ not add a Debian repository to Raspberry Pi OS.
 
 Prometheus config and alert rules live in `prometheus/` and are copied by the playbook.
 
+Pull requests are checked by the validation workflow in
+`.github/workflows/validate.yml`. It validates shell scripts, YAML, Docker
+Compose, Ansible syntax, and Prometheus configuration. See
+[validation-ci.md](docs/validation-ci.md).
+
 Container data is stored under `docker_data_root`, so Caddy, Grafana, Prometheus,
 and Portainer state can live on NVMe instead of the SD card. Volume permissions
 are set automatically by the playbook. No manual `chown` is required.
@@ -187,12 +192,18 @@ docker compose ps
 ```
 
 The production Pi also runs a host-level recovery timer at
-`/etc/systemd/system/rive-healthcheck.timer`. It calls
-`/usr/local/sbin/rive-healthcheck` once per minute and reboots the node after
+`/etc/systemd/system/homelab-healthcheck.timer`. It calls
+`/usr/local/sbin/homelab-healthcheck` once per minute and reboots the node after
 three consecutive failures of Docker, Node Exporter, Grafana, Prometheus, the
 NVMe mount, or recent USB/storage kernel checks. This is documented in
 [nvme-usb-power-instability.md](docs/troubleshooting/nvme-usb-power-instability.md).
 The source files live under `ops/healthcheck/`.
+
+Thermal and NVMe SMART samples are logged by
+`/etc/systemd/system/homelab-thermal-monitor.timer` and exported to Prometheus
+through Node Exporter's textfile collector. Logs are kept under
+`/var/log/homelab-thermal/thermal.log`; source files live under
+`ops/thermal-monitor/`.
 
 The 4get scraper service is behind the optional Compose profile. To include it, run Compose with `--profile optional`.
 
@@ -204,7 +215,12 @@ Once configured, provision and deploy everything with a single command:
 ansible-playbook -i inventory.ini playbook.yml
 ```
 
-The playbook handles installing Docker, Docker Compose, Tailscale, and Samba; authenticating the node; enabling IPv4 forwarding; advertising the subnet route and exit node; configuring the hardware watchdog; optionally enabling log2ram when requested; copying Prometheus configuration; and deploying the container stack automatically.
+The playbook handles installing Docker, Docker Compose, Tailscale, Samba, and
+SMART tooling; authenticating the node; enabling IPv4 forwarding; advertising
+the subnet route and exit node; configuring the hardware watchdog; optionally
+enabling log2ram when requested; installing the homelab healthcheck and thermal
+monitor systemd timers; copying Prometheus configuration; and deploying the
+container stack automatically.
 
 After the first Tailscale run, approve the advertised subnet route and exit node in the Tailscale admin console if required by your tailnet policy.
 

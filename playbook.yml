@@ -12,6 +12,9 @@
       tailscale_authkey_effective: "{{ tailscale_authkey | default(lookup('env', 'TAILSCALE_AUTHKEY'), true) }}"
       tailscale_hostname_effective: "{{ tailscale_hostname | default('homelab-pi') }}"
       tailscale_routes_effective: "{{ tailscale_advertise_routes | default('192.168.1.0/24') }}"
+      node_exporter_textfile_path: "{{ node_exporter_textfile_dir | default('/var/lib/node_exporter/textfile') }}"
+      install_homelab_healthcheck_effective: "{{ install_homelab_healthcheck | default(true) }}"
+      install_homelab_thermal_monitor_effective: "{{ install_homelab_thermal_monitor | default(true) }}"
 
   pre_tasks:
       - name: Check Tailscale state
@@ -40,6 +43,7 @@
                 - docker-compose-plugin
                 - tailscale
                 - samba
+                - smartmontools
             state: present
             update_cache: true
 
@@ -128,6 +132,14 @@
             - "{{ stack_path }}/caddy"
             - "{{ stack_path }}/prometheus"
 
+      - name: Create Node Exporter textfile collector directory
+        file:
+            path: "{{ node_exporter_textfile_path }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
       - name: Create NVMe-backed Docker data directories
         file:
             path: "{{ item.path }}"
@@ -170,6 +182,66 @@
             - Caddyfile
             - Dockerfile
 
+      - name: Install homelab healthcheck script
+        copy:
+            src: ./ops/healthcheck/homelab-healthcheck
+            dest: /usr/local/sbin/homelab-healthcheck
+            owner: root
+            group: root
+            mode: "0755"
+        when: install_homelab_healthcheck_effective | bool
+
+      - name: Install homelab healthcheck systemd units
+        copy:
+            src: "./ops/healthcheck/{{ item }}"
+            dest: "/etc/systemd/system/{{ item }}"
+            owner: root
+            group: root
+            mode: "0644"
+        loop:
+            - homelab-healthcheck.service
+            - homelab-healthcheck.timer
+        when: install_homelab_healthcheck_effective | bool
+        notify: Reload systemd
+
+      - name: Enable homelab healthcheck timer
+        systemd:
+            name: homelab-healthcheck.timer
+            enabled: true
+            state: started
+            daemon_reload: true
+        when: install_homelab_healthcheck_effective | bool
+
+      - name: Install homelab thermal monitor script
+        copy:
+            src: ./ops/thermal-monitor/homelab-thermal-monitor
+            dest: /usr/local/sbin/homelab-thermal-monitor
+            owner: root
+            group: root
+            mode: "0755"
+        when: install_homelab_thermal_monitor_effective | bool
+
+      - name: Install homelab thermal monitor systemd units
+        copy:
+            src: "./ops/thermal-monitor/{{ item }}"
+            dest: "/etc/systemd/system/{{ item }}"
+            owner: root
+            group: root
+            mode: "0644"
+        loop:
+            - homelab-thermal-monitor.service
+            - homelab-thermal-monitor.timer
+        when: install_homelab_thermal_monitor_effective | bool
+        notify: Reload systemd
+
+      - name: Enable homelab thermal monitor timer
+        systemd:
+            name: homelab-thermal-monitor.timer
+            enabled: true
+            state: started
+            daemon_reload: true
+        when: install_homelab_thermal_monitor_effective | bool
+
       - name: Write Docker Compose environment
         copy:
             dest: "{{ stack_path }}/.env"
@@ -191,3 +263,7 @@
   handlers:
       - name: Reexec systemd
         command: systemctl daemon-reexec
+
+      - name: Reload systemd
+        systemd:
+            daemon_reload: true
