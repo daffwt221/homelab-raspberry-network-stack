@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Rive stack healthcheck every minute
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Unit=rive-healthcheck.service
+
+[Install]
+WantedBy=timers.target

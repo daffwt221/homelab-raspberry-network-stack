@@ -192,6 +192,7 @@ The production Pi also runs a host-level recovery timer at
 three consecutive failures of Docker, Node Exporter, Grafana, Prometheus, the
 NVMe mount, or recent USB/storage kernel checks. This is documented in
 [nvme-usb-power-instability.md](docs/troubleshooting/nvme-usb-power-instability.md).
+The source files live under `ops/healthcheck/`.
 
 The 4get scraper service is behind the optional Compose profile. To include it, run Compose with `--profile optional`.
 

@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+
+STATE_FILE=/run/rive-healthcheck.failures
+MAX_FAILURES=3
+LOG_TAG=rive-healthcheck
+
+fail() {
+    reason=$1
+    failures=0
+    if [ -r "$STATE_FILE" ]; then
+        failures=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
+    fi
+    failures=$((failures + 1))
+    printf '%s\n' "$failures" > "$STATE_FILE"
+    logger -t "$LOG_TAG" "failure ${failures}/${MAX_FAILURES}: ${reason}"
+
+    if [ "$failures" -ge "$MAX_FAILURES" ]; then
+        logger -t "$LOG_TAG" "rebooting after ${failures} consecutive failures: ${reason}"
+        /bin/systemctl reboot
+    fi
+
+    exit 1
+}
+
+ok() {
+    if [ -e "$STATE_FILE" ]; then
+        rm -f "$STATE_FILE"
+    fi
+    logger -t "$LOG_TAG" "ok"
+}
+
+run_check() {
+    reason=$1
+    shift
+    timeout 8 "$@" >/dev/null 2>&1 || fail "$reason"
+}
+
+run_check "docker daemon not responding" docker info
+run_check "node-exporter metrics not responding" curl -fsS --max-time 5 http://127.0.0.1:9100/metrics
+run_check "grafana port not responding" curl -fsS --max-time 5 http://127.0.0.1:3000/api/health
+run_check "prometheus health not responding" curl -fsS --max-time 5 http://127.0.0.1:9090/-/healthy
+run_check "/mnt/nvme is not mounted" mountpoint -q /mnt/nvme
+
+if dmesg -T 2>/dev/null | tail -n 250 | grep -Eiq 'I/O error|Buffer I/O error|blk_update_request|EXT4-fs error|reset high-speed USB device|device descriptor read.*error|uas_eh_abort_handler|usb .* reset'; then
+    fail "recent kernel log contains USB/storage/I/O errors"
+fi
+
+ok
