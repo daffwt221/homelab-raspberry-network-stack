@@ -167,6 +167,11 @@ not add a Debian repository to Raspberry Pi OS.
 
 Prometheus config and alert rules live in `prometheus/` and are copied by the playbook.
 
+Pull requests are checked by the validation workflow in
+`.github/workflows/validate.yml`. It validates shell scripts, YAML, Docker
+Compose, Ansible syntax, and Prometheus configuration. See
+[validation-ci.md](docs/validation-ci.md).
+
 Container data is stored under `docker_data_root`, so Caddy, Grafana, Prometheus,
 and Portainer state can live on NVMe instead of the SD card. Volume permissions
 are set automatically by the playbook. No manual `chown` is required.
