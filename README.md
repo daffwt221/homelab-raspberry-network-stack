@@ -194,6 +194,12 @@ NVMe mount, or recent USB/storage kernel checks. This is documented in
 [nvme-usb-power-instability.md](docs/troubleshooting/nvme-usb-power-instability.md).
 The source files live under `ops/healthcheck/`.
 
+Thermal and NVMe SMART samples are logged by
+`/etc/systemd/system/homelab-thermal-monitor.timer` and exported to Prometheus
+through Node Exporter's textfile collector. Logs are kept under
+`/var/log/homelab-thermal/thermal.log`; source files live under
+`ops/thermal-monitor/`.
+
 The 4get scraper service is behind the optional Compose profile. To include it, run Compose with `--profile optional`.
 
 ### Automated provisioning (Ansible)

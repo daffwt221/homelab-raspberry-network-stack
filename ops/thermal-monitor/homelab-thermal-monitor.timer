@@ -1,0 +1,11 @@
+[Unit]
+Description=Run homelab thermal monitor every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=homelab-thermal-monitor.service
+
+[Install]
+WantedBy=timers.target

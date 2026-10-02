@@ -95,6 +95,21 @@ A stack-level healthcheck was added as a systemd timer:
 The `ops/healthcheck/` files are the repository source. The `/usr/local/sbin`
 and `/etc/systemd/system` paths are the installed runtime locations on the Pi.
 
+A separate thermal monitor logs Raspberry Pi and NVMe SMART samples without
+taking automatic recovery action:
+
+```text
+/ops/thermal-monitor/homelab-thermal-monitor
+/ops/thermal-monitor/homelab-thermal-monitor.service
+/ops/thermal-monitor/homelab-thermal-monitor.timer
+
+/usr/local/sbin/homelab-thermal-monitor
+/etc/systemd/system/homelab-thermal-monitor.service
+/etc/systemd/system/homelab-thermal-monitor.timer
+/var/log/homelab-thermal/thermal.log
+/var/lib/node_exporter/textfile/homelab_thermal.prom
+```
+
 The timer checks once per minute:
 
 - Docker daemon responsiveness

@@ -1,0 +1,84 @@
+#!/bin/sh
+set -eu
+
+LOG_DIR=/var/log/homelab-thermal
+LOG_FILE="${LOG_DIR}/thermal.log"
+TEXTFILE_DIR=/var/lib/node_exporter/textfile
+METRICS_FILE="${TEXTFILE_DIR}/homelab_thermal.prom"
+TMP_METRICS="${METRICS_FILE}.$$"
+
+mkdir -p "$LOG_DIR" "$TEXTFILE_DIR"
+
+timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+pi_temp_celsius=""
+throttled=""
+nvme_temp_celsius=""
+nvme_sensor1_celsius=""
+nvme_sensor2_celsius=""
+nvme_percentage_used=""
+nvme_power_cycles=""
+nvme_unsafe_shutdowns=""
+nvme_media_errors=""
+nvme_error_log_entries=""
+
+if command -v vcgencmd >/dev/null 2>&1; then
+    pi_temp_celsius=$(vcgencmd measure_temp 2>/dev/null | sed -n "s/temp=\([0-9.]*\)'C/\1/p" || true)
+    throttled=$(vcgencmd get_throttled 2>/dev/null | sed -n 's/throttled=//p' || true)
+fi
+
+smart_output=$(smartctl -a -T permissive /dev/sda 2>/dev/null || true)
+nvme_temp_celsius=$(printf '%s\n' "$smart_output" | awk -F: '/^Temperature:/ {gsub(/ Celsius| /,"",$2); print $2; exit}')
+nvme_sensor1_celsius=$(printf '%s\n' "$smart_output" | awk -F: '/^Temperature Sensor 1:/ {gsub(/ Celsius| /,"",$2); print $2; exit}')
+nvme_sensor2_celsius=$(printf '%s\n' "$smart_output" | awk -F: '/^Temperature Sensor 2:/ {gsub(/ Celsius| /,"",$2); print $2; exit}')
+nvme_percentage_used=$(printf '%s\n' "$smart_output" | awk -F: '/^Percentage Used:/ {gsub(/%| /,"",$2); print $2; exit}')
+nvme_power_cycles=$(printf '%s\n' "$smart_output" | awk -F: '/^Power Cycles:/ {gsub(/,| /,"",$2); print $2; exit}')
+nvme_unsafe_shutdowns=$(printf '%s\n' "$smart_output" | awk -F: '/^Unsafe Shutdowns:/ {gsub(/,| /,"",$2); print $2; exit}')
+nvme_media_errors=$(printf '%s\n' "$smart_output" | awk -F: '/^Media and Data Integrity Errors:/ {gsub(/,| /,"",$2); print $2; exit}')
+nvme_error_log_entries=$(printf '%s\n' "$smart_output" | awk -F: '/^Error Information Log Entries:/ {gsub(/,| /,"",$2); print $2; exit}')
+
+printf '%s pi_temp_celsius=%s throttled=%s nvme_temp_celsius=%s nvme_sensor1_celsius=%s nvme_sensor2_celsius=%s nvme_percentage_used=%s nvme_power_cycles=%s nvme_unsafe_shutdowns=%s nvme_media_errors=%s nvme_error_log_entries=%s\n' \
+    "$timestamp" \
+    "${pi_temp_celsius:-unknown}" \
+    "${throttled:-unknown}" \
+    "${nvme_temp_celsius:-unknown}" \
+    "${nvme_sensor1_celsius:-unknown}" \
+    "${nvme_sensor2_celsius:-unknown}" \
+    "${nvme_percentage_used:-unknown}" \
+    "${nvme_power_cycles:-unknown}" \
+    "${nvme_unsafe_shutdowns:-unknown}" \
+    "${nvme_media_errors:-unknown}" \
+    "${nvme_error_log_entries:-unknown}" >> "$LOG_FILE"
+
+{
+    echo '# HELP homelab_pi_temperature_celsius Raspberry Pi CPU temperature from vcgencmd.'
+    echo '# TYPE homelab_pi_temperature_celsius gauge'
+    [ -n "$pi_temp_celsius" ] && echo "homelab_pi_temperature_celsius ${pi_temp_celsius}"
+    echo '# HELP homelab_pi_throttled_state Raspberry Pi throttled state from vcgencmd as a numeric bitmask.'
+    echo '# TYPE homelab_pi_throttled_state gauge'
+    [ -n "$throttled" ] && printf 'homelab_pi_throttled_state %d\n' "$throttled"
+    echo '# HELP homelab_nvme_temperature_celsius NVMe composite temperature from smartctl.'
+    echo '# TYPE homelab_nvme_temperature_celsius gauge'
+    [ -n "$nvme_temp_celsius" ] && echo "homelab_nvme_temperature_celsius ${nvme_temp_celsius}"
+    echo '# HELP homelab_nvme_sensor_temperature_celsius NVMe sensor temperature from smartctl.'
+    echo '# TYPE homelab_nvme_sensor_temperature_celsius gauge'
+    [ -n "$nvme_sensor1_celsius" ] && echo "homelab_nvme_sensor_temperature_celsius{sensor=\"1\"} ${nvme_sensor1_celsius}"
+    [ -n "$nvme_sensor2_celsius" ] && echo "homelab_nvme_sensor_temperature_celsius{sensor=\"2\"} ${nvme_sensor2_celsius}"
+    echo '# HELP homelab_nvme_percentage_used NVMe lifetime percentage used from smartctl.'
+    echo '# TYPE homelab_nvme_percentage_used gauge'
+    [ -n "$nvme_percentage_used" ] && echo "homelab_nvme_percentage_used ${nvme_percentage_used}"
+    echo '# HELP homelab_nvme_power_cycles_total NVMe power cycle count from smartctl.'
+    echo '# TYPE homelab_nvme_power_cycles_total counter'
+    [ -n "$nvme_power_cycles" ] && echo "homelab_nvme_power_cycles_total ${nvme_power_cycles}"
+    echo '# HELP homelab_nvme_unsafe_shutdowns_total NVMe unsafe shutdown count from smartctl.'
+    echo '# TYPE homelab_nvme_unsafe_shutdowns_total counter'
+    [ -n "$nvme_unsafe_shutdowns" ] && echo "homelab_nvme_unsafe_shutdowns_total ${nvme_unsafe_shutdowns}"
+    echo '# HELP homelab_nvme_media_errors_total NVMe media and data integrity error count from smartctl.'
+    echo '# TYPE homelab_nvme_media_errors_total counter'
+    [ -n "$nvme_media_errors" ] && echo "homelab_nvme_media_errors_total ${nvme_media_errors}"
+    echo '# HELP homelab_nvme_error_log_entries_total NVMe error information log entry count from smartctl.'
+    echo '# TYPE homelab_nvme_error_log_entries_total counter'
+    [ -n "$nvme_error_log_entries" ] && echo "homelab_nvme_error_log_entries_total ${nvme_error_log_entries}"
+} > "$TMP_METRICS"
+
+mv "$TMP_METRICS" "$METRICS_FILE"
+logger -t homelab-thermal-monitor "logged thermal sample"
