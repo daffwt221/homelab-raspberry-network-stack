@@ -2,9 +2,26 @@
 
 Host-level recovery check for the Raspberry Pi stack.
 
-The timer runs once per minute and calls `homelab-healthcheck`. The script reboots
-the node after 3 consecutive failures across Docker, Node Exporter, Grafana,
-Prometheus, the NVMe mount, or recent USB/storage kernel errors.
+The timer runs once per minute and calls `homelab-healthcheck`. The script
+reboots the node after 3 consecutive failures across critical host and service
+checks.
+
+Checks:
+
+- Docker daemon responsiveness
+- critical Docker containers marked `unhealthy`
+- Node Exporter, Grafana, and Prometheus local HTTP health
+- `/mnt/nvme` mounted
+- `/` and `/mnt/nvme` still mounted read-write
+- NVMe unsafe shutdown counter did not increase
+- local DNS resolution works
+- recent USB/storage/I/O kernel errors
+
+Safety behavior:
+
+- a lock prevents overlapping runs
+- reboot is suppressed during the first 10 minutes after boot
+- reboot reports include the script version and diagnostic snapshots
 
 Before rebooting, it writes a persistent report under:
 

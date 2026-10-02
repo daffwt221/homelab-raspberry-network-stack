@@ -113,13 +113,19 @@ taking automatic recovery action:
 The timer checks once per minute:
 
 - Docker daemon responsiveness
+- critical Docker containers marked `unhealthy`
 - Node Exporter metrics on `127.0.0.1:9100`
 - Grafana health on `127.0.0.1:3000`
 - Prometheus health on `127.0.0.1:9090`
 - `/mnt/nvme` mount presence
+- `/` and `/mnt/nvme` read-write state
+- NVMe unsafe shutdown counter increases
+- local DNS resolution
 - recent kernel logs for USB, storage, I/O, or EXT4 errors
 
 It reboots only after 3 consecutive failed checks.
+Overlapping runs are skipped with a lock, and reboot is suppressed during the
+first 10 minutes after boot to reduce reboot-loop risk.
 
 Before rebooting, the script writes a report to:
 
