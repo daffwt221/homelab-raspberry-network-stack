@@ -106,6 +106,17 @@ The timer checks once per minute:
 
 It reboots only after 3 consecutive failed checks.
 
+Before rebooting, the script writes a report to:
+
+```text
+/var/log/rive-healthcheck/
+```
+
+The report includes the reboot reason, consecutive failure count, failed
+systemd units, Docker state, `/mnt/nvme` mount status, disk usage, memory,
+SMART summary, recent kernel USB/storage/I/O lines, and recent healthcheck
+journal entries.
+
 ## Operations
 
 Check healthcheck timer status:
@@ -118,6 +129,12 @@ View healthcheck logs:
 
 ```bash
 journalctl -t rive-healthcheck -n 50 --no-pager
+```
+
+List reboot reports:
+
+```bash
+sudo ls -lah /var/log/rive-healthcheck/
 ```
 
 Run the healthcheck manually:

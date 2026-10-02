@@ -4,6 +4,50 @@ set -eu
 STATE_FILE=/run/rive-healthcheck.failures
 MAX_FAILURES=3
 LOG_TAG=rive-healthcheck
+REPORT_DIR=/var/log/rive-healthcheck
+
+write_report() {
+    reason=$1
+    failures=$2
+    timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
+    report="${REPORT_DIR}/${timestamp}-reboot-report.log"
+
+    mkdir -p "$REPORT_DIR"
+    {
+        echo "timestamp_utc=${timestamp}"
+        echo "reason=${reason}"
+        echo "consecutive_failures=${failures}/${MAX_FAILURES}"
+        echo
+        echo "== uptime =="
+        uptime || true
+        echo
+        echo "== systemd failed units =="
+        systemctl --failed --no-pager || true
+        echo
+        echo "== docker ps =="
+        timeout 8 docker ps -a || true
+        echo
+        echo "== mount /mnt/nvme =="
+        findmnt /mnt/nvme || true
+        echo
+        echo "== disk usage =="
+        df -h || true
+        echo
+        echo "== memory =="
+        free -h || true
+        echo
+        echo "== nvme smart summary =="
+        timeout 10 smartctl -a -T permissive /dev/sda 2>&1 | grep -E 'Temperature|Percentage Used|Power Cycles|Unsafe Shutdowns|Media and Data|Error Information' || true
+        echo
+        echo "== recent kernel USB/storage/I/O lines =="
+        dmesg -T 2>/dev/null | tail -n 350 | grep -Ei 'I/O error|Buffer I/O error|blk_update_request|EXT4-fs error|reset high-speed USB device|device descriptor read.*error|uas_eh_abort_handler|usb .* reset|sda|mmc|nvme|rtl9210' || true
+        echo
+        echo "== recent healthcheck journal =="
+        journalctl -t "$LOG_TAG" -n 80 --no-pager || true
+    } > "$report" 2>&1
+
+    logger -t "$LOG_TAG" "wrote reboot report: ${report}"
+}
 
 fail() {
     reason=$1
@@ -17,6 +61,7 @@ fail() {
 
     if [ "$failures" -ge "$MAX_FAILURES" ]; then
         logger -t "$LOG_TAG" "rebooting after ${failures} consecutive failures: ${reason}"
+        write_report "$reason" "$failures"
         /bin/systemctl reboot
     fi
 
