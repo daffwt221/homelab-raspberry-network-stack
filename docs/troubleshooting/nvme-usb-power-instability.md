@@ -113,7 +113,8 @@ taking automatic recovery action:
 The timer checks once per minute:
 
 - Docker daemon responsiveness
-- critical Docker containers marked `unhealthy`
+- critical Docker containers marked `unhealthy`; the script tries to restart
+  the affected container once before counting a failure
 - Node Exporter metrics on `127.0.0.1:9100`
 - Grafana health on `127.0.0.1:3000`
 - Prometheus health on `127.0.0.1:9090`

@@ -9,7 +9,8 @@ checks.
 Checks:
 
 - Docker daemon responsiveness
-- critical Docker containers marked `unhealthy`
+- critical Docker containers marked `unhealthy`; the script tries `docker
+  restart` once and only counts a failure if the container does not recover
 - Node Exporter, Grafana, and Prometheus local HTTP health
 - `/mnt/nvme` mounted
 - `/` and `/mnt/nvme` still mounted read-write
