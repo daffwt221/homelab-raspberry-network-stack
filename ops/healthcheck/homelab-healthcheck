@@ -11,7 +11,8 @@ LOG_TAG=homelab-healthcheck
 REPORT_DIR=/var/log/homelab-healthcheck
 CRITICAL_CONTAINERS="caddy prometheus node-exporter grafana portainer"
 DNS_CHECK_HOST=google.com
-PIHOLE_DNS_HOST=pihole.home.arpa
+PIHOLE_DNS_SERVER=127.0.0.1
+PIHOLE_UI_HOST=pihole.home.arpa
 PIHOLE_TEST_DOMAINS="google.com github.com cloudflare.com"
 PIHOLE_RESTART_ATTEMPTS=2
 RUN_STARTED_AT=$(date +%s)
@@ -73,12 +74,12 @@ write_report() {
         timeout 8 getent hosts "$DNS_CHECK_HOST" || true
         echo
         echo "== pihole dns check =="
-        timeout 8 getent hosts "$PIHOLE_DNS_HOST" || true
+        timeout 8 getent hosts "$PIHOLE_UI_HOST" || true
         for domain in $PIHOLE_TEST_DOMAINS; do
             if command -v dig >/dev/null 2>&1; then
-                timeout 8 dig +time=3 +tries=1 +short @"$PIHOLE_DNS_HOST" "$domain" || true
+                timeout 8 dig +time=3 +tries=1 +short @"$PIHOLE_DNS_SERVER" "$domain" || true
             elif command -v nslookup >/dev/null 2>&1; then
-                timeout 8 nslookup "$domain" "$PIHOLE_DNS_HOST" || true
+                timeout 8 nslookup "$domain" "$PIHOLE_DNS_SERVER" || true
             else
                 echo "dig/nslookup unavailable"
             fi
@@ -217,13 +218,13 @@ resolve_via_pihole() {
     domain=$1
 
     if command -v dig >/dev/null 2>&1; then
-        timeout 8 dig +time=3 +tries=1 +short @"$PIHOLE_DNS_HOST" "$domain" |
+        timeout 8 dig +time=3 +tries=1 +short @"$PIHOLE_DNS_SERVER" "$domain" |
             grep -Eq '^[0-9a-fA-F:.]+$'
         return $?
     fi
 
     if command -v nslookup >/dev/null 2>&1; then
-        timeout 8 nslookup "$domain" "$PIHOLE_DNS_HOST" |
+        timeout 8 nslookup "$domain" "$PIHOLE_DNS_SERVER" |
             grep -Eq '^Address: |^Name: '
         return $?
     fi
@@ -250,17 +251,17 @@ restart_pihole() {
 }
 
 check_pihole_dns() {
-    log "check started: Pi-hole DNS resolver host=${PIHOLE_DNS_HOST} domains=$(printf '%s' "$PIHOLE_TEST_DOMAINS" | tr ' ' ',') restart_attempts=${PIHOLE_RESTART_ATTEMPTS}"
+    log "check started: Pi-hole DNS resolver server=${PIHOLE_DNS_SERVER} ui_host=${PIHOLE_UI_HOST} domains=$(printf '%s' "$PIHOLE_TEST_DOMAINS" | tr ' ' ',') restart_attempts=${PIHOLE_RESTART_ATTEMPTS}"
 
     run=0
     while [ "$run" -le "$PIHOLE_RESTART_ATTEMPTS" ]; do
         failed_domains=""
         for domain in $PIHOLE_TEST_DOMAINS; do
             if resolve_via_pihole "$domain"; then
-                log "pihole resolved domain=${domain} via=${PIHOLE_DNS_HOST}"
+                log "pihole resolved domain=${domain} via=${PIHOLE_DNS_SERVER}"
             else
                 failed_domains="${failed_domains} ${domain}"
-                log "pihole failed to resolve domain=${domain} via=${PIHOLE_DNS_HOST}"
+                log "pihole failed to resolve domain=${domain} via=${PIHOLE_DNS_SERVER}"
             fi
         done
 
