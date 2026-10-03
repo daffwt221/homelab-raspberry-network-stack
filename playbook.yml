@@ -44,6 +44,7 @@
                 - tailscale
                 - samba
                 - smartmontools
+                - dnsutils
             state: present
             update_cache: true
 
