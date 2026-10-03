@@ -142,6 +142,29 @@
             group: root
             mode: "0755"
 
+      - name: Create journald config directory
+        file:
+            path: /etc/systemd/journald.conf.d
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+      - name: Install journald retention limits
+        copy:
+            src: ./ops/journald/99-homelab-limits.conf
+            dest: /etc/systemd/journald.conf.d/99-homelab-limits.conf
+            owner: root
+            group: root
+            mode: "0644"
+        register: journald_limits
+
+      - name: Restart journald after retention limit changes
+        service:
+            name: systemd-journald
+            state: restarted
+        when: journald_limits.changed
+
       - name: Create NVMe-backed Docker data directories
         file:
             path: "{{ item.path }}"
