@@ -121,15 +121,17 @@ ok() {
 }
 
 run_check() {
-    reason=$1
+    label=$1
+    fail_reason=$2
     shift
-    log "check started: ${reason}; command=$*"
+    shift
+    log "check started: ${label}; command=$*"
     output=$(timeout 8 "$@" 2>&1) || {
         status=$?
-        log "check failed: ${reason}; exit_status=${status}; output=$(printf '%s' "$output" | tr '\n' ' ' | cut -c1-500)"
-        fail "$reason"
+        log "check failed: ${label}; exit_status=${status}; output=$(printf '%s' "$output" | tr '\n' ' ' | cut -c1-500)"
+        fail "$fail_reason"
     }
-    log "check passed: ${reason}"
+    log "check passed: ${label}"
 }
 
 check_unhealthy_containers() {
@@ -196,15 +198,15 @@ check_nvme_unsafe_shutdowns() {
     log "check passed: NVMe unsafe shutdown counter"
 }
 
-run_check "docker daemon not responding" docker info
+run_check "docker daemon responsiveness" "docker daemon not responding" docker info
 check_unhealthy_containers
-run_check "node-exporter metrics not responding" curl -fsS --max-time 5 http://127.0.0.1:9100/metrics
-run_check "grafana port not responding" curl -fsS --max-time 5 http://127.0.0.1:3000/api/health
-run_check "prometheus health not responding" curl -fsS --max-time 5 http://127.0.0.1:9090/-/healthy
-run_check "/mnt/nvme is not mounted" mountpoint -q /mnt/nvme
+run_check "node-exporter metrics endpoint" "node-exporter metrics not responding" curl -fsS --max-time 5 http://127.0.0.1:9100/metrics
+run_check "grafana health endpoint" "grafana port not responding" curl -fsS --max-time 5 http://127.0.0.1:3000/api/health
+run_check "prometheus health endpoint" "prometheus health not responding" curl -fsS --max-time 5 http://127.0.0.1:9090/-/healthy
+run_check "/mnt/nvme mountpoint" "/mnt/nvme is not mounted" mountpoint -q /mnt/nvme
 check_filesystem_rw
 check_nvme_unsafe_shutdowns
-run_check "DNS resolution failed for ${DNS_CHECK_HOST}" getent hosts "$DNS_CHECK_HOST"
+run_check "DNS resolution for ${DNS_CHECK_HOST}" "DNS resolution failed for ${DNS_CHECK_HOST}" getent hosts "$DNS_CHECK_HOST"
 
 if dmesg -T 2>/dev/null | tail -n 250 | grep -Eiq 'I/O error|Buffer I/O error|blk_update_request|EXT4-fs error|reset high-speed USB device|device descriptor read.*error|uas_eh_abort_handler|usb .* reset'; then
     fail "recent kernel log contains USB/storage/I/O errors"
