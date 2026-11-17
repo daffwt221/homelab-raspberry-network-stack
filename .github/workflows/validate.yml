@@ -33,6 +33,12 @@ jobs:
             prometheus/prometheus.yml \
             prometheus/alerts.yml \
             playbook.yml \
+            ops/pihole/tasks.yml \
+            ops/pihole/configure.yml \
+            ops/pihole/unbound.yml \
+            ops/pihole/dns-services.yml \
+            ops/pihole/verify.yml \
+            ops/pihole/defaults.yml \
             group_vars/all.yml.example \
             .github/workflows/*.yml
 
@@ -41,6 +47,9 @@ jobs:
           COMPOSE_PROJECT_NAME=homelab \
           TAILSCALE_IP=100.64.0.1 \
           docker compose config --quiet
+
+      - name: Test Pi-hole configuration convergence
+        run: python3 -m unittest discover -s ops/pihole/tests -v
 
       - name: Validate Ansible syntax
         run: ansible-playbook -i inventory.ini playbook.yml --syntax-check
