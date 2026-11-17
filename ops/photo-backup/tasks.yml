@@ -1,0 +1,297 @@
+- name: Require the NVMe filesystem before configuring photo intake
+  ansible.builtin.command: mountpoint -q /mnt/nvme
+  check_mode: false
+  changed_when: false
+
+- name: Confirm the photo destination is on ext4
+  ansible.builtin.command: findmnt -n -o FSTYPE -T /mnt/nvme
+  register: photo_backup_nvme_fstype
+  check_mode: false
+  changed_when: false
+
+- name: Reject an unexpected NVMe filesystem
+  ansible.builtin.assert:
+    that:
+      - photo_backup_nvme_fstype.stdout | trim == "ext4"
+    fail_msg: /mnt/nvme must be mounted as ext4 before enabling photo intake.
+
+- name: Require Docker data to remain on the NVMe mount
+  ansible.builtin.assert:
+    that:
+      - docker_storage_path is match("^/mnt/nvme(/|$)")
+    fail_msg: docker_data_root must remain under /mnt/nvme for this stack.
+
+- name: Resolve the stable intake identity
+  ansible.builtin.set_fact:
+    photo_backup_uid: "{{ photo_backup_account_uid | default(994) }}"
+    photo_backup_gid: "{{ photo_backup_account_gid | default(10001) }}"
+    photo_backup_upload_path: "{{ photo_backup_upload_path_effective }}"
+
+- name: Reject numeric identities belonging to another account
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import pwd, grp, sys
+        for lookup, number in ((pwd.getpwuid, sys.argv[1]), (grp.getgrgid, sys.argv[2])):
+            try:
+                account = lookup(int(number))
+            except KeyError:
+                continue
+            assert account[0] == 'photo-backup', 'Requested ID belongs to ' + account[0]
+        for lookup, number in ((pwd.getpwnam, sys.argv[1]), (grp.getgrnam, sys.argv[2])):
+            try:
+                account = lookup('photo-backup')
+            except KeyError:
+                continue
+            assert account[2] == int(number), 'Existing photo-backup ID differs; review migration'
+      - "{{ photo_backup_uid }}"
+      - "{{ photo_backup_gid }}"
+  changed_when: false
+  check_mode: false
+
+- name: Ensure the dedicated host photo group exists
+  ansible.builtin.group:
+    name: photo-backup
+    gid: "{{ photo_backup_gid }}"
+    system: true
+
+- name: Create the stable locked photo account
+  ansible.builtin.user:
+    name: photo-backup
+    uid: "{{ photo_backup_uid }}"
+    group: photo-backup
+    system: true
+    create_home: false
+    home: /upload
+    shell: /usr/sbin/nologin
+    password_lock: true
+
+- name: Allow the stack user to read uploads through the dedicated group
+  ansible.builtin.user:
+    name: "{{ stack_user }}"
+    groups: photo-backup
+    append: true
+  when: not ansible_check_mode
+
+- name: Create the inbox if it does not exist without changing existing metadata
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import os, sys
+        p, uid, gid = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+        if not os.path.lexists(p):
+            os.makedirs(p, mode=0o750)
+            os.chown(p, uid, gid)
+            print('created')
+      - "{{ photo_backup_upload_path }}"
+      - "{{ photo_backup_uid }}"
+      - "{{ photo_backup_gid }}"
+  register: photo_inbox_create
+  changed_when: "'created' in photo_inbox_create.stdout"
+  when: not ansible_check_mode
+
+- name: Verify the upload path resolves to the NVMe mount
+  ansible.builtin.command: findmnt -n -o TARGET -T "{{ photo_backup_upload_path }}"
+  register: photo_backup_upload_mount
+  check_mode: false
+  changed_when: false
+
+- name: Reject an upload path outside the NVMe filesystem
+  ansible.builtin.assert:
+    that:
+      - photo_backup_upload_mount.stdout | trim == "/mnt/nvme"
+    fail_msg: The phone upload directory must resolve to the /mnt/nvme filesystem.
+
+- name: Inspect the inbox before auditing metadata
+  ansible.builtin.stat:
+    path: "{{ photo_backup_upload_path }}"
+  register: photo_inbox_stat
+
+- name: Check whether the intake is running before a metadata migration
+  ansible.builtin.command: docker inspect --format '{{ '{{.State.Running}}' }}' photo-backup-sftp
+  register: photo_intake_running
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Audit the inbox metadata before making any changes
+  ansible.builtin.script:
+    cmd: "./ops/photo-backup/permissions.py {{ photo_backup_upload_path | quote }} {{ photo_backup_uid }} {{ photo_backup_gid }}"
+    executable: python3
+  register: photo_permissions_audit
+  when: photo_inbox_stat.stat.exists
+  changed_when: false
+  check_mode: false
+
+- name: Require a stopped intake before changing existing inbox metadata
+  ansible.builtin.assert:
+    that:
+      - photo_intake_running.stdout | trim != 'true'
+    fail_msg: Stop only photo-backup-sftp and rerun; migration must not race with uploads.
+  when: photo_permissions_audit.stdout is defined and (photo_permissions_audit.stdout | from_json).changed
+
+- name: Migrate only the audited phone inbox and save original metadata
+  ansible.builtin.script:
+    cmd: "./ops/photo-backup/permissions.py {{ photo_backup_upload_path | quote }} {{ photo_backup_uid }} {{ photo_backup_gid }} --apply"
+    executable: python3
+  register: photo_permissions_apply
+  changed_when: (photo_permissions_apply.stdout | from_json).changed
+  when:
+    - photo_permissions_audit.stdout is defined
+    - (photo_permissions_audit.stdout | from_json).changed
+    - not ansible_check_mode
+
+- name: Install ACL support for host-side access to the inbox
+  ansible.builtin.apt:
+    name: acl
+    state: present
+
+- name: Grant the dedicated group traversal of the photo parent directories
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: photo-backup
+    etype: group
+    permissions: x
+    state: present
+  when: not ansible_check_mode
+  loop:
+    - /mnt/nvme/photos
+    - /mnt/nvme/photos/inbox
+
+- name: Create the persistent SFTP host-key directory on NVMe
+  ansible.builtin.file:
+    path: "{{ docker_storage_path }}/photo-backup/hostkeys"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Create the root-owned SFTP authorized-key directory
+  ansible.builtin.file:
+    path: /etc/ssh/photo-backup
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check for existing phone keys
+  ansible.builtin.stat:
+    path: /etc/ssh/photo-backup/authorized_keys
+  register: photo_keys_existing
+
+- name: Check the optional recovered phone public keys
+  ansible.builtin.stat:
+    path: "{{ photo_backup_recovered_keys | default('/srv/homelab-recovery-2026-11-15/old-root/etc/ssh/photo-backup/authorized_keys') }}"
+  register: photo_keys_recovered
+
+- name: Restore the original phone public keys only when absent
+  ansible.builtin.copy:
+    src: "{{ photo_backup_recovered_keys | default('/srv/homelab-recovery-2026-11-15/old-root/etc/ssh/photo-backup/authorized_keys') }}"
+    dest: /etc/ssh/photo-backup/authorized_keys
+    remote_src: true
+    force: false
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - not photo_keys_existing.stat.exists
+    - photo_keys_recovered.stat.exists
+    - not ansible_check_mode
+
+- name: Create the keys file when a public key was explicitly supplied
+  ansible.builtin.copy:
+    dest: /etc/ssh/photo-backup/authorized_keys
+    content: "{{ photo_backup_public_key }}\n"
+    force: false
+    owner: root
+    group: root
+    mode: '0644'
+  when: photo_backup_public_key | default('') | length > 0 and not ansible_check_mode
+
+- name: Enforce authorized keys file ownership and permissions
+  ansible.builtin.file:
+    path: /etc/ssh/photo-backup/authorized_keys
+    state: file
+    owner: root
+    group: root
+    mode: "0644"
+  when: photo_keys_existing.stat.exists or not ansible_check_mode
+
+- name: Add the phone public key when supplied
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/photo-backup/authorized_keys
+    line: "{{ photo_backup_public_key }}"
+    state: present
+  when: photo_backup_public_key is defined and (photo_backup_public_key | length > 0)
+
+- name: Require at least one valid authorized public key before deployment
+  ansible.builtin.command: ssh-keygen -l -f /etc/ssh/photo-backup/authorized_keys
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Check for the legacy host SFTP mount unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/srv-sftp-poco-upload.mount
+  register: photo_backup_legacy_mount_unit
+
+- name: Stop and disable the legacy host SFTP mount
+  ansible.builtin.systemd:
+    name: srv-sftp-poco-upload.mount
+    state: stopped
+    enabled: false
+    daemon_reload: true
+  when: photo_backup_legacy_mount_unit.stat.exists
+
+- name: Remove the legacy host SFTP mount unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/srv-sftp-poco-upload.mount
+    state: absent
+  register: photo_backup_legacy_mount_removed
+
+- name: Remove the legacy host SSH SFTP restriction
+  ansible.builtin.blockinfile:
+    path: /etc/ssh/sshd_config
+    marker: "# {mark} ANSIBLE MANAGED PHOTO BACKUP SFTP"
+    state: absent
+    validate: /usr/sbin/sshd -t -f %s
+  register: photo_backup_legacy_sshd_removed
+
+- name: Reload host SSH after removing the photo SFTP listener
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded
+  when: photo_backup_legacy_sshd_removed.changed
+
+- name: Remove the legacy per-user systemd resource limit
+  ansible.builtin.file:
+    path: "/etc/systemd/system/user-{{ photo_backup_uid }}.slice.d/50-photo-backup-limits.conf"
+    state: absent
+  register: photo_backup_legacy_slice_removed
+
+- name: Create the deployed photo SFTP build context
+  ansible.builtin.file:
+    path: "{{ stack_path }}/ops/photo-backup"
+    state: directory
+    owner: "{{ stack_user }}"
+    group: "{{ stack_user }}"
+    mode: "0755"
+
+- name: Copy the photo SFTP container build files
+  ansible.builtin.copy:
+    src: "./ops/photo-backup/{{ item.name }}"
+    dest: "{{ stack_path }}/ops/photo-backup/{{ item.name }}"
+    owner: "{{ stack_user }}"
+    group: "{{ stack_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: "Dockerfile", mode: "0644" }
+    - { name: ".dockerignore", mode: "0644" }
+    - { name: "entrypoint.sh", mode: "0755" }
+    - { name: "sshd_config", mode: "0644" }
+
+- name: Configure an optional independent copy of new uploads
+  ansible.builtin.import_tasks: secondary.yml

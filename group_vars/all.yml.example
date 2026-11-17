@@ -4,6 +4,7 @@ compose_file: docker-compose.yml
 
 docker_data_root: /mnt/nvme/docker
 service_bind_address: 127.0.0.1
+photo_backup_bind_address: 0.0.0.0
 enable_log2ram: false
 install_homelab_healthcheck: true
 install_homelab_thermal_monitor: true
@@ -13,3 +14,17 @@ tailscale_authkey: XXXXX
 tailscale_hostname: homelab-pi
 tailscale_advertise_routes: 192.168.1.0/24
 tailscale_advertise_exit_node: true
+
+# Verify with sudo blkid. This is the recovered homelab SSD, not an SD PARTUUID.
+nvme_uuid: 85b4ece7-c1df-41b9-bf67-47949d0d5164
+# Preserve the recovered file owner; never reuse the old GID 989 (now spi).
+photo_backup_account_uid: 994
+photo_backup_account_gid: 10001
+# Provide a phone PUBLIC key on a fresh installation without the recovery tree.
+# photo_backup_public_key: "ssh-ed25519 AAAA... phone"
+# photo_backup_recovered_keys: /path/to/recovered/authorized_keys
+
+# Disabled until a second disk is configured. This does not back up Takeout archives.
+photo_backup_secondary_enabled: false
+# photo_backup_secondary_mount: /mnt/photo-backup-disk
+# photo_backup_secondary_dir: /mnt/photo-backup-disk/phone-uploads

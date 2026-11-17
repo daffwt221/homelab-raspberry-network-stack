@@ -1,0 +1,97 @@
+- name: Start Docker after the storage and intake preflight checks
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Validate the Compose deployment model
+  ansible.builtin.command: docker compose -f {{ stack_compose_file }} config --quiet
+  args:
+    chdir: "{{ stack_path }}"
+  changed_when: false
+
+- name: Hash the complete SFTP build context and account identity
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import hashlib, pathlib, sys
+        h = hashlib.sha256()
+        for name in ('Dockerfile', '.dockerignore', 'entrypoint.sh', 'sshd_config'):
+            h.update(name.encode()); h.update((pathlib.Path(sys.argv[1]) / name).read_bytes())
+        h.update((':'.join(sys.argv[2:])).encode())
+        print(h.hexdigest())
+      - "{{ stack_path }}/ops/photo-backup"
+      - "{{ photo_backup_uid }}"
+      - "{{ photo_backup_gid }}"
+  register: photo_backup_build_hash
+  changed_when: false
+
+- name: Read the installed image build identity
+  ansible.builtin.command: docker image inspect homelab/photo-backup-sftp:bookworm
+  register: photo_backup_image
+  changed_when: false
+  failed_when: false
+
+- name: Build the photo SFTP image only when absent or changed
+  ansible.builtin.command: docker compose -f {{ stack_compose_file }} build photo-backup-sftp
+  args:
+    chdir: "{{ stack_path }}"
+  environment:
+    DOCKER_BUILDKIT: "0"
+    PHOTO_BACKUP_BUILD_ID: "{{ photo_backup_build_hash.stdout | trim }}"
+  changed_when: true
+  when: >-
+    photo_backup_image.rc != 0 or
+    ((photo_backup_image.stdout | from_json | first).Config.Labels | default({}, true)).get('homelab.photo-backup.build-id', '')
+    != photo_backup_build_hash.stdout | trim
+
+- name: Start the photo SFTP service
+  ansible.builtin.command: docker compose -f {{ stack_compose_file }} up -d photo-backup-sftp
+  args:
+    chdir: "{{ stack_path }}"
+  register: photo_backup_start
+  changed_when: (photo_backup_start.stdout ~ photo_backup_start.stderr) is search("Created|Recreated|Started")
+
+- name: Wait for the photo SFTP listener health check
+  ansible.builtin.command: docker inspect photo-backup-sftp
+  register: photo_backup_health_inspect
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: >-
+    (photo_backup_health_inspect.stdout | from_json | first).State.Health.Status
+    == "healthy"
+
+- name: Store the deployed photo SFTP container configuration
+  ansible.builtin.set_fact:
+    photo_backup_container: "{{ (photo_backup_health_inspect.stdout | from_json | first) }}"
+
+- name: Verify photo SFTP state, NVMe bind, and resource limits
+  ansible.builtin.assert:
+    that:
+      - photo_backup_container.State.Status == "running"
+      - photo_backup_container.State.Health.Status == "healthy"
+      - photo_backup_container.HostConfig.Memory | int == 134217728
+      - photo_backup_container.HostConfig.MemoryReservation | int == 100663296
+      - photo_backup_container.HostConfig.PidsLimit | int == 32
+      - >-
+        (photo_backup_container.Mounts
+        | selectattr('Destination', 'equalto', '/srv/sftp/upload')
+        | map(attribute='Source')
+        | first) == photo_backup_upload_path
+    fail_msg: >-
+      The photo SFTP container is not healthy with its NVMe upload mount and
+      96/128 MiB and 32-process limits. Inspect docker logs photo-backup-sftp.
+
+- name: Verify the persistent SFTP host key was created on NVMe
+  ansible.builtin.stat:
+    path: "{{ docker_storage_path }}/photo-backup/hostkeys/ssh_host_ed25519_key"
+  register: photo_backup_host_key
+
+- name: Require the persistent SFTP host key
+  ansible.builtin.assert:
+    that:
+      - photo_backup_host_key.stat.exists
+      - photo_backup_host_key.stat.mode == "0600"

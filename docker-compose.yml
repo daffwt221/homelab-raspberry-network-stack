@@ -115,3 +115,52 @@ services:
     profiles:
       - optional
     mem_limit: 150m
+
+  photo-backup-sftp:
+    build:
+      context: ./ops/photo-backup
+      args:
+        PHOTO_BACKUP_UID: '${PHOTO_BACKUP_UID:-10001}'
+        PHOTO_BACKUP_GID: '${PHOTO_BACKUP_GID:-10001}'
+        PHOTO_BACKUP_BUILD_ID: '${PHOTO_BACKUP_BUILD_ID:-manual}'
+    image: homelab/photo-backup-sftp:bookworm
+    container_name: photo-backup-sftp
+    restart: unless-stopped
+    init: true
+    ports:
+      - '${PHOTO_BACKUP_BIND_ADDRESS:-0.0.0.0}:2222:22'
+    volumes:
+      - type: bind
+        source: '${PHOTO_BACKUP_UPLOAD_PATH:-/mnt/nvme/photos/inbox/poco-x7-pro}'
+        target: /srv/sftp/upload
+        bind:
+          create_host_path: false
+      - '${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/photo-backup/hostkeys:/etc/ssh/hostkeys'
+      - /etc/ssh/photo-backup/authorized_keys:/etc/ssh/photo-backup_authorized_keys:ro
+    read_only: true
+    tmpfs:
+      - /run:rw,noexec,nosuid,size=8m
+      - /tmp:rw,noexec,nosuid,size=4m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+      - SYS_CHROOT
+    security_opt:
+      - no-new-privileges:true
+    mem_reservation: 96m
+    mem_limit: 128m
+    pids_limit: 32
+    healthcheck:
+      test: [CMD-SHELL, "ss -lnt | grep -Eq ':22[[:space:]]'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '3'
