@@ -31,6 +31,13 @@
         when: not tailscale_state.stat.exists
 
   tasks:
+      - name: Require the expected NVMe UUID for healthchecks
+        ansible.builtin.assert:
+            that:
+                - nvme_uuid | default('') is match('(?i)^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$')
+            fail_msg: Set nvme_uuid to the expected ext4 filesystem UUID in group_vars/all.yml before enabling healthchecks.
+        when: install_homelab_healthcheck_effective | bool
+
       - name: Remove legacy Debian repository previously added for log2ram
         file:
             path: /etc/apt/sources.list.d/bookworm.list
@@ -60,12 +67,18 @@
             state: started
             enabled: true
 
-      - name: Enable IPv4 forwarding for subnet routing
-        sysctl:
-            name: net.ipv4.ip_forward
+      - name: Enable IP forwarding for Tailscale routing
+        ansible.posix.sysctl:
+            name: "{{ item }}"
             value: "1"
             state: present
+            sysctl_set: true
+            sysctl_file: /etc/sysctl.d/99-tailscale.conf
             reload: true
+        loop:
+            - net.ipv4.ip_forward
+            - net.ipv6.conf.all.forwarding
+        when: (tailscale_routes_effective | length > 0) or (tailscale_advertise_exit_node | default(true) | bool)
 
       - name: Configure Tailscale routes and exit node
         command: >
@@ -82,6 +95,7 @@
         command: tailscale ip -4
         register: tailscale_ipv4
         changed_when: false
+        check_mode: false
         tags:
             - always
 
@@ -207,6 +221,59 @@
             - Caddyfile
             - Dockerfile
 
+      - name: Create persistent global healthcheck recovery state directory
+        file:
+            path: /var/lib/homelab-healthcheck
+            state: directory
+            owner: root
+            group: root
+            mode: "0700"
+        when: install_homelab_healthcheck_effective | bool
+
+      - name: Install healthcheck recovery and diagnostic helpers
+        copy:
+            src: "./ops/healthcheck/{{ item.source }}"
+            dest: "/usr/local/sbin/{{ item.destination }}"
+            owner: root
+            group: root
+            mode: "0755"
+        loop:
+            - { source: recovery.py, destination: homelab-healthcheck-recovery }
+            - { source: diagnostics.py, destination: homelab-healthcheck-diagnostics }
+            - { source: remote_access.py, destination: homelab-healthcheck-access }
+            - { source: infrastructure.py, destination: homelab-healthcheck-infrastructure }
+        when: install_homelab_healthcheck_effective | bool
+
+      - name: Validate local remote-access probe configuration
+        command:
+            argv:
+                - python3
+                - -c
+                - "import ipaddress,re,sys; ipaddress.ip_address(sys.argv[1]); assert 1 <= int(sys.argv[2]) <= 65535; assert re.fullmatch(r'[A-Za-z0-9_.-]{1,15}', sys.argv[3])"
+                - "{{ healthcheck_ssh_host | default('127.0.0.1') }}"
+                - "{{ healthcheck_ssh_port | default(22) }}"
+                - "{{ healthcheck_tailscale_interface | default('tailscale0') }}"
+        changed_when: false
+        check_mode: false
+        when: install_homelab_healthcheck_effective | bool
+
+      - name: Configure local SSH, DNS, and storage probes
+        copy:
+            dest: /etc/default/homelab-healthcheck
+            owner: root
+            group: root
+            mode: "0644"
+            content: |
+                # Local deployment endpoints and storage identity.
+                SSH_CHECK_HOST={{ healthcheck_ssh_host | default('127.0.0.1') | quote }}
+                SSH_CHECK_PORT={{ healthcheck_ssh_port | default(22) | int }}
+                TAILSCALE_CHECK_INTERFACE={{ healthcheck_tailscale_interface | default('tailscale0') | quote }}
+                NVME_UUID={{ nvme_uuid | quote }}
+                PIHOLE_PROBE_NAME={{ (pihole_dns_names | default(['pihole.home.arpa']) | first) | quote }}
+                PIHOLE_PROBE_ADDRESS={{ (pihole_dns_ipv4 | default(tailscale_ipv4.stdout | trim, true)) | quote }}
+                UNBOUND_PROBE_PORT={{ unbound_port | default(5335) | int }}
+        when: install_homelab_healthcheck_effective | bool
+
       - name: Install homelab healthcheck script
         copy:
             src: ./ops/healthcheck/homelab-healthcheck
@@ -228,14 +295,6 @@
             - homelab-healthcheck.timer
         when: install_homelab_healthcheck_effective | bool
         notify: Reload systemd
-
-      - name: Enable homelab healthcheck timer
-        systemd:
-            name: homelab-healthcheck.timer
-            enabled: true
-            state: started
-            daemon_reload: true
-        when: install_homelab_healthcheck_effective | bool
 
       - name: Install homelab thermal monitor script
         copy:
@@ -292,3 +351,12 @@
       - name: Reload systemd
         systemd:
             daemon_reload: true
+
+  post_tasks:
+      - name: Enable homelab healthcheck timer
+        systemd:
+            name: homelab-healthcheck.timer
+            enabled: true
+            state: started
+            daemon_reload: true
+        when: install_homelab_healthcheck_effective | bool

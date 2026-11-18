@@ -1,20 +1,44 @@
 #!/bin/sh
 set -eu
+umask 077
 
-VERSION=2026-10-02.3
-STATE_FILE=/run/homelab-healthcheck.failures
-UNSAFE_SHUTDOWNS_STATE_FILE=/run/homelab-healthcheck.nvme_unsafe_shutdowns
+VERSION=2026-11-18.2
+RECOVERY_HELPER=/usr/local/sbin/homelab-healthcheck-recovery
+DIAGNOSTICS_HELPER=/usr/local/sbin/homelab-healthcheck-diagnostics
+RECOVERY_STATE_DIR=/var/lib/homelab-healthcheck
+ACCESS_HELPER=/usr/local/sbin/homelab-healthcheck-access
+ACCESS_REBOOT_LIMIT=1
+INFRASTRUCTURE_HELPER=/usr/local/sbin/homelab-healthcheck-infrastructure
+DNS_REBOOT_LIMIT=1
+STORAGE_REBOOT_LIMIT=1
+NVME_UUID=""
+PIHOLE_PROBE_NAME=pihole.home.arpa
+PIHOLE_PROBE_ADDRESS=""
+UNBOUND_PROBE_PORT=5335
+SSH_CHECK_HOST=127.0.0.1
+SSH_CHECK_PORT=22
+TAILSCALE_CHECK_INTERFACE=tailscale0
+ACCESS_FAILURE_REASON=""
+ACCESS_WARNING=""
 LOCK_FILE=/run/homelab-healthcheck.lock
 MAX_FAILURES=3
 BOOT_COOLDOWN_SECONDS=600
+MAX_REBOOT_COOLDOWN_SECONDS=1800
+STABLE_OPERATION_SECONDS=1800
+MAX_HEALTHY_GAP_SECONDS=180
+CONTAINER_REBOOT_LIMIT=3
+CONTAINER_LOG_LINES=200
+CONTAINER_LOG_MAX_BYTES=262144
+REPORT_MAX_FILES=40
+REPORT_MAX_TOTAL_BYTES=10485760
+CONTAINER_FAILURE_REASON=""
 LOG_TAG=homelab-healthcheck
 REPORT_DIR=/var/log/homelab-healthcheck
 CRITICAL_CONTAINERS="caddy prometheus node-exporter grafana portainer"
-DNS_CHECK_HOST=google.com
-PIHOLE_DNS_SERVER=127.0.0.1
-PIHOLE_UI_HOST=pihole.home.arpa
-PIHOLE_TEST_DOMAINS="google.com github.com cloudflare.com"
-PIHOLE_RESTART_ATTEMPTS=2
+if [ -r /etc/default/homelab-healthcheck ]; then
+    # shellcheck source=/dev/null
+    . /etc/default/homelab-healthcheck
+fi
 RUN_STARTED_AT=$(date +%s)
 
 log() {
@@ -33,18 +57,12 @@ uptime_seconds() {
     awk '{print int($1)}' /proc/uptime
 }
 
-get_nvme_unsafe_shutdowns() {
-    timeout 10 smartctl -a -T permissive /dev/sda 2>/dev/null |
-        awk -F: '/^Unsafe Shutdowns:/ {gsub(/,| /,"",$2); print $2; exit}'
-}
-
 write_report() {
     reason=$1
     failures=$2
     timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
-    report="${REPORT_DIR}/${timestamp}-reboot-report.log"
-
     mkdir -p "$REPORT_DIR"
+    report=$(mktemp "${REPORT_DIR}/${timestamp}-XXXXXX-reboot-report.log")
     {
         echo "timestamp_utc=${timestamp}"
         echo "script_version=${VERSION}"
@@ -54,6 +72,12 @@ write_report() {
         echo
         echo "== uptime =="
         uptime || true
+        echo
+        echo "== remote access diagnostics (read-only) =="
+        timeout -k 2 50 "$ACCESS_HELPER" --ssh-host "$SSH_CHECK_HOST" --ssh-port "$SSH_CHECK_PORT" --interface "$TAILSCALE_CHECK_INTERFACE" || true
+        echo
+        echo "== Tailscale network conditions =="
+        timeout -k 2 10 tailscale netcheck --format=json || true
         echo
         echo "== systemd failed units =="
         systemctl --failed --no-pager || true
@@ -70,29 +94,18 @@ write_report() {
         echo "== filesystem options =="
         findmnt -no TARGET,OPTIONS / /mnt/nvme || true
         echo
-        echo "== dns check =="
-        timeout 8 getent hosts "$DNS_CHECK_HOST" || true
-        echo
-        echo "== pihole dns check =="
-        timeout 8 getent hosts "$PIHOLE_UI_HOST" || true
-        for domain in $PIHOLE_TEST_DOMAINS; do
-            if command -v dig >/dev/null 2>&1; then
-                timeout 8 dig +time=3 +tries=1 +short @"$PIHOLE_DNS_SERVER" "$domain" || true
-            elif command -v nslookup >/dev/null 2>&1; then
-                timeout 8 nslookup "$domain" "$PIHOLE_DNS_SERVER" || true
-            else
-                echo "dig/nslookup unavailable"
-            fi
-        done
+        echo "== local DNS probe (read-only) =="
+        timeout -k 2 30 "$INFRASTRUCTURE_HELPER" dns --name "$PIHOLE_PROBE_NAME" \
+            --address "$PIHOLE_PROBE_ADDRESS" --unbound-port "$UNBOUND_PROBE_PORT" || true
         echo
         echo "== disk usage =="
-        df -h || true
+        timeout -k 2 8 df -h || true
         echo
         echo "== memory =="
         free -h || true
         echo
-        echo "== nvme smart summary =="
-        timeout 10 smartctl -a -T permissive /dev/sda 2>&1 | grep -E 'Temperature|Percentage Used|Power Cycles|Unsafe Shutdowns|Media and Data|Error Information' || true
+        echo "== NVMe probe (read-only) =="
+        timeout -k 2 40 "$INFRASTRUCTURE_HELPER" storage --uuid "$NVME_UUID" || true
         echo
         echo "== recent kernel USB/storage/I/O lines =="
         dmesg -T 2>/dev/null | tail -n 350 | grep -Ei 'I/O error|Buffer I/O error|blk_update_request|EXT4-fs error|reset high-speed USB device|device descriptor read.*error|uas_eh_abort_handler|usb .* reset|sda|mmc|nvme|rtl9210' || true
@@ -101,200 +114,261 @@ write_report() {
         journalctl -t "$LOG_TAG" -n 80 --no-pager || true
     } > "$report" 2>&1
 
+    prune_reports
     log "wrote reboot report: ${report}"
+}
+
+recovery_decision() {
+    "$RECOVERY_HELPER" --state-dir "$RECOVERY_STATE_DIR" \
+        --failures "$MAX_FAILURES" \
+        --base-cooldown "$BOOT_COOLDOWN_SECONDS" \
+        --max-cooldown "$MAX_REBOOT_COOLDOWN_SECONDS" \
+        --stable-seconds "$STABLE_OPERATION_SECONDS" \
+        --max-healthy-gap "$MAX_HEALTHY_GAP_SECONDS" \
+        --container-reboot-limit "$CONTAINER_REBOOT_LIMIT" \
+        --access-reboot-limit "$ACCESS_REBOOT_LIMIT" \
+        --dns-reboot-limit "$DNS_REBOOT_LIMIT" \
+        --storage-reboot-limit "$STORAGE_REBOOT_LIMIT" \
+        --kind "${2:-critical}" "$1"
+}
+
+prune_reports() {
+    "$DIAGNOSTICS_HELPER" --directory "$REPORT_DIR" \
+        --max-files "$REPORT_MAX_FILES" --max-total-bytes "$REPORT_MAX_TOTAL_BYTES" \
+        || log "could not enforce diagnostic report retention"
+}
+
+capture_container_logs() {
+    if snapshot=$("$DIAGNOSTICS_HELPER" --directory "$REPORT_DIR" \
+        --container "$1" --tail "$CONTAINER_LOG_LINES" --max-bytes "$CONTAINER_LOG_MAX_BYTES" \
+        --max-files "$REPORT_MAX_FILES" --max-total-bytes "$REPORT_MAX_TOTAL_BYTES"); then
+        log "saved container logs before recovery: container=$1 file=${snapshot}"
+    else
+        log "could not capture container logs before recovery: container=$1"
+    fi
 }
 
 fail() {
     reason=$1
-    failures=0
-    if [ -r "$STATE_FILE" ]; then
-        failures=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
+    failure_kind=${2:-critical}
+    if ! decision=$(recovery_decision failure "$failure_kind"); then
+        log "automatic reboot suppressed: recovery state unavailable; ${reason}"
+        write_report "recovery state unavailable: ${reason}" unknown || log "could not write failure report"
+        exit 1
     fi
-    failures=$((failures + 1))
-    printf '%s\n' "$failures" > "$STATE_FILE"
-    log "failure ${failures}/${MAX_FAILURES}: ${reason}"
-
-    if [ "$failures" -ge "$MAX_FAILURES" ]; then
-        if [ "$(uptime_seconds)" -lt "$BOOT_COOLDOWN_SECONDS" ]; then
-            log "reboot suppressed during ${BOOT_COOLDOWN_SECONDS}s boot cooldown: ${reason}"
-            write_report "boot cooldown suppressed reboot: ${reason}" "$failures"
-            exit 1
-        fi
-        log "rebooting after ${failures} consecutive failures: ${reason}"
-        write_report "$reason" "$failures"
-        /bin/systemctl reboot
+    # The helper returns exactly four space-separated, machine-readable fields.
+    # This is data, never sourced or evaluated as shell code.
+    IFS=' ' read -r action failures cooldown policy_reason extra <<RECOVERY_DECISION
+$decision
+RECOVERY_DECISION
+    if [ -z "$action" ] || [ -z "$policy_reason" ] || [ -n "$extra" ]; then
+        log "automatic reboot suppressed: invalid recovery decision"
+        exit 1
     fi
+    for counter in "$failures" "$cooldown"; do
+        case "$counter" in
+            ''|*[!0-9]*)
+                log "automatic reboot suppressed: invalid recovery counters"
+                exit 1
+                ;;
+        esac
+    done
+    log "failure ${failures}/${MAX_FAILURES}: kind=${failure_kind} cooldown_seconds=${cooldown} policy=${policy_reason}; ${reason}"
 
+    case "$action" in
+        reboot)
+            log "requesting host reboot after durable global reservation: ${reason}"
+            write_report "$reason" "$failures" || log "could not write reboot report"
+            if ! /bin/systemctl reboot; then
+                log "reboot request failed; no automatic repeat request in this boot"
+            fi
+            ;;
+        wait)
+            log "automatic reboot suppressed: ${policy_reason}; ${reason}"
+            # One suppression report at the threshold, not a report every minute.
+            if [ "$failures" -eq "$MAX_FAILURES" ]; then
+                write_report "${policy_reason}: ${reason}" "$failures" || log "could not write suppression report"
+            fi
+            ;;
+        *) log "automatic reboot suppressed: unexpected recovery action ${action}" ;;
+    esac
     exit 1
 }
 
 ok() {
-    if [ -e "$STATE_FILE" ]; then
-        rm -f "$STATE_FILE"
+    # Only the coordinator calls healthy, once ALL required checks pass.
+    if ! decision=$(recovery_decision healthy); then
+        log "run completed with recovery state error; stability not recorded"
+        exit 1
     fi
     duration=$(( $(date +%s) - RUN_STARTED_AT ))
-    log "run completed status=ok duration_seconds=${duration}"
+    log "run completed status=ok duration_seconds=${duration} recovery=${decision}"
+}
+
+check_remote_access() {
+    ACCESS_FAILURE_REASON=""
+    ACCESS_WARNING=""
+    access_status=0
+    access_result=$(timeout -k 2 160 "$ACCESS_HELPER" "$@" \
+        --ssh-host "$SSH_CHECK_HOST" --ssh-port "$SSH_CHECK_PORT" --interface "$TAILSCALE_CHECK_INTERFACE" 2>&1) || access_status=$?
+    log "remote access probe: status=${access_status}; ${access_result}"
+    case "$access_status" in
+        0) return 0 ;;
+        10) ACCESS_FAILURE_REASON="confirmed remote access failure: ${access_result}" ;;
+        *) ACCESS_WARNING="remote access inconclusive: ${access_result}" ;;
+    esac
+}
+
+degraded() {
+    # Unknown reachability must neither request reboot nor reset episode budgets.
+    if ! decision=$(recovery_decision degraded); then
+        log "could not persist inconclusive observation; no reboot requested"
+        exit 1
+    fi
+    log "run completed status=degraded recovery=${decision}; $*"
 }
 
 run_check() {
-    label=$1
-    fail_reason=$2
-    shift
-    shift
+    check_kind=$1
+    label=$2
+    fail_reason=$3
+    shift 3
     log "check started: ${label}; command=$*"
     output=$(timeout 8 "$@" 2>&1) || {
         status=$?
         log "check failed: ${label}; exit_status=${status}; output=$(printf '%s' "$output" | tr '\n' ' ' | cut -c1-500)"
+        if [ "$check_kind" = containers ]; then
+            CONTAINER_FAILURE_REASON="${CONTAINER_FAILURE_REASON}${fail_reason}; "
+            return 0
+        fi
         fail "$fail_reason"
     }
     log "check passed: ${label}"
 }
 
 check_unhealthy_containers() {
+    CONTAINER_FAILURE_REASON=""
     log "check started: docker unhealthy containers"
+    # logs every unhealthy container
     unhealthy=$(timeout 8 docker ps --filter health=unhealthy --format '{{.Names}}' 2>/dev/null || true)
+    # if theres no unhealthy containers, return
     if [ -z "$unhealthy" ]; then
         log "check passed: no unhealthy containers"
         return 0
     fi
 
+    # logs the exact unhealthy containers
     log "unhealthy containers detected: $(printf '%s' "$unhealthy" | tr '\n' ' ')"
+    unrecovered_containers=""
+    ignored_containers=""
 
+    # for every unhealthy container...
     for container in $unhealthy; do
+        capture_container_logs "$container"
+        is_critical=false
+
         for critical in $CRITICAL_CONTAINERS; do
+            # if a container is critical, then its critical
             if [ "$container" = "$critical" ]; then
-                log "critical container unhealthy: ${container}; action=restart"
-                timeout 30 docker restart "$container" >/dev/null 2>&1 || fail "critical container restart failed: ${container}"
-                sleep 20
-
-                state=$(timeout 8 docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo unknown)
-                if [ "$state" = "healthy" ] || [ "$state" = "none" ]; then
-                    log "critical container recovered after restart: ${container} health=${state}"
-                    return 0
-                fi
-
-                fail "critical container still unhealthy after restart: ${container} health=${state}"
-            fi
-        done
-    done
-
-    log "non-critical unhealthy containers ignored: $(printf '%s' "$unhealthy" | tr '\n' ' ')"
-}
-
-check_filesystem_rw() {
-    log "check started: filesystem read-write state"
-    for mountpoint in / /mnt/nvme; do
-        options=$(findmnt -no OPTIONS "$mountpoint" 2>/dev/null || true)
-        [ -n "$options" ] || fail "${mountpoint} mount options unavailable"
-        log "mount options: ${mountpoint} ${options}"
-        case ",${options}," in
-            *,ro,*) fail "${mountpoint} is mounted read-only" ;;
-        esac
-    done
-    log "check passed: filesystem read-write state"
-}
-
-check_nvme_unsafe_shutdowns() {
-    log "check started: NVMe unsafe shutdown counter"
-    current=$(get_nvme_unsafe_shutdowns || true)
-    [ -n "$current" ] || fail "NVMe unsafe shutdown counter unavailable"
-
-    if [ -r "$UNSAFE_SHUTDOWNS_STATE_FILE" ]; then
-        previous=$(cat "$UNSAFE_SHUTDOWNS_STATE_FILE" 2>/dev/null || echo "$current")
-        log "NVMe unsafe shutdown counter previous=${previous} current=${current}"
-        if [ "$current" -gt "$previous" ]; then
-            printf '%s\n' "$current" > "$UNSAFE_SHUTDOWNS_STATE_FILE"
-            fail "NVMe unsafe shutdown counter increased from ${previous} to ${current}"
-        fi
-    else
-        log "NVMe unsafe shutdown baseline initialized current=${current}"
-    fi
-
-    printf '%s\n' "$current" > "$UNSAFE_SHUTDOWNS_STATE_FILE"
-    log "check passed: NVMe unsafe shutdown counter"
-}
-
-resolve_via_pihole() {
-    domain=$1
-
-    if command -v dig >/dev/null 2>&1; then
-        timeout 8 dig +time=3 +tries=1 +short @"$PIHOLE_DNS_SERVER" "$domain" |
-            grep -Eq '^[0-9a-fA-F:.]+$'
-        return $?
-    fi
-
-    if command -v nslookup >/dev/null 2>&1; then
-        timeout 8 nslookup "$domain" "$PIHOLE_DNS_SERVER" |
-            grep -Eq '^Address: |^Name: '
-        return $?
-    fi
-
-    log "pihole DNS check unavailable: neither dig nor nslookup exists"
-    return 1
-}
-
-restart_pihole() {
-    if timeout 8 docker inspect pihole >/dev/null 2>&1; then
-        log "pihole recovery action: docker restart pihole"
-        timeout 45 docker restart pihole >/dev/null 2>&1
-        return $?
-    fi
-
-    if systemctl list-unit-files pihole-FTL.service --no-legend 2>/dev/null | grep -q '^pihole-FTL\.service'; then
-        log "pihole recovery action: systemctl restart pihole-FTL.service"
-        timeout 45 systemctl restart pihole-FTL.service
-        return $?
-    fi
-
-    log "pihole recovery unavailable: no docker container named pihole and no pihole-FTL.service"
-    return 1
-}
-
-check_pihole_dns() {
-    log "check started: Pi-hole DNS resolver server=${PIHOLE_DNS_SERVER} ui_host=${PIHOLE_UI_HOST} domains=$(printf '%s' "$PIHOLE_TEST_DOMAINS" | tr ' ' ',') restart_attempts=${PIHOLE_RESTART_ATTEMPTS}"
-
-    run=0
-    while [ "$run" -le "$PIHOLE_RESTART_ATTEMPTS" ]; do
-        failed_domains=""
-        for domain in $PIHOLE_TEST_DOMAINS; do
-            if resolve_via_pihole "$domain"; then
-                log "pihole resolved domain=${domain} via=${PIHOLE_DNS_SERVER}"
-            else
-                failed_domains="${failed_domains} ${domain}"
-                log "pihole failed to resolve domain=${domain} via=${PIHOLE_DNS_SERVER}"
+                is_critical=true
+                break
             fi
         done
 
-        if [ -z "$failed_domains" ]; then
-            log "check passed: Pi-hole DNS resolver"
-            return 0
+        # if its not critical, then it is ignored
+        if [ "$is_critical" = false ]; then
+            ignored_containers="${ignored_containers}${container} "
+            continue
         fi
 
-        if [ "$run" -ge "$PIHOLE_RESTART_ATTEMPTS" ]; then
-            fail "Pi-hole DNS still failing after ${PIHOLE_RESTART_ATTEMPTS} restart attempts; failed_domains=$(printf '%s' "$failed_domains" | sed 's/^ //')"
+        # logs very unhealthy critical container and restarts it
+        log "critical container unhealthy: ${container}; action=restart"
+        # Limit the docker restart command to 30 seconds; inspect health separately below.
+        if ! timeout 30 docker restart "$container" >/dev/null 2>&1; then
+            log "critical container restart failed: ${container}"
+            unrecovered_containers="${unrecovered_containers}${container} (restart failed); "
+            continue
         fi
-
-        run=$((run + 1))
-        log "Pi-hole DNS failed; attempting recovery ${run}/${PIHOLE_RESTART_ATTEMPTS}; failed_domains=$(printf '%s' "$failed_domains" | sed 's/^ //')"
-        restart_pihole || log "Pi-hole restart attempt ${run}/${PIHOLE_RESTART_ATTEMPTS} failed"
-        sleep 15
+        sleep 20
+        # if critical container is healthy after restart, logs it
+        state=$(timeout 8 docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo unknown)
+        if [ "$state" = "healthy" ] || [ "$state" = "none" ]; then
+            log "critical container recovered after restart: ${container} health=${state}"
+        else # if critical container still unhealthy, logs it
+            log "critical container still unhealthy after restart: ${container} health=${state}"
+            unrecovered_containers="${unrecovered_containers}${container} (health=${state}); "
+        fi
     done
+    # if ignored containers string is != empty, logs them
+    if [ -n "$ignored_containers" ]; then
+        log "non-critical unhealthy containers ignored: ${ignored_containers}"
+    fi
+
+    # Finish the entire snapshot before counting one failed healthcheck run.
+    if [ -n "$unrecovered_containers" ]; then
+        CONTAINER_FAILURE_REASON="critical containers failed to recover: ${unrecovered_containers}"
+        return 1
+    fi
+    log "check passed: no critical containers remain unrecovered"
 }
 
-run_check "docker daemon responsiveness" "docker daemon not responding" docker info
-check_unhealthy_containers
-run_check "node-exporter metrics endpoint" "node-exporter metrics not responding" curl -fsS --max-time 5 http://127.0.0.1:9100/metrics
-run_check "grafana health endpoint" "grafana port not responding" curl -fsS --max-time 5 http://127.0.0.1:3000/api/health
-run_check "prometheus health endpoint" "prometheus health not responding" curl -fsS --max-time 5 http://127.0.0.1:9090/-/healthy
-run_check "/mnt/nvme mountpoint" "/mnt/nvme is not mounted" mountpoint -q /mnt/nvme
-check_filesystem_rw
-check_nvme_unsafe_shutdowns
-run_check "DNS resolution for ${DNS_CHECK_HOST}" "DNS resolution failed for ${DNS_CHECK_HOST}" getent hosts "$DNS_CHECK_HOST"
-check_pihole_dns
+check_storage() {
+    STORAGE_STATUS=0
+    STORAGE_RESULT=$(timeout -k 2 50 "$INFRASTRUCTURE_HELPER" storage \
+        --uuid "$NVME_UUID" --monitor \
+        --baseline "${RECOVERY_STATE_DIR}/nvme-observation.json" 2>&1) || STORAGE_STATUS=$?
+    log "NVMe probe: status=${STORAGE_STATUS}; ${STORAGE_RESULT}"
+}
 
-if dmesg -T 2>/dev/null | tail -n 250 | grep -Eiq 'I/O error|Buffer I/O error|blk_update_request|EXT4-fs error|reset high-speed USB device|device descriptor read.*error|uas_eh_abort_handler|usb .* reset'; then
-    fail "recent kernel log contains USB/storage/I/O errors"
-fi
-log "check passed: recent kernel log contains no USB/storage/I/O errors"
+check_dns() {
+    DNS_STATUS=0
+    DNS_RESULT=$(timeout -k 2 90 "$INFRASTRUCTURE_HELPER" dns \
+        --name "$PIHOLE_PROBE_NAME" --address "$PIHOLE_PROBE_ADDRESS" \
+        --unbound-port "$UNBOUND_PROBE_PORT" "$@" 2>&1) || DNS_STATUS=$?
+    log "DNS probe: status=${DNS_STATUS}; ${DNS_RESULT}"
+}
 
-ok
+run_checks() {
+    check_storage
+    # Keep access checks independent of the Docker stack.
+    if [ "$STORAGE_STATUS" -ne 0 ]; then
+        check_remote_access
+        # Preserve DNS visibility, but hold service recovery and all other reboot paths.
+        check_dns
+        if [ "$STORAGE_STATUS" -eq 10 ]; then
+            fail "$STORAGE_RESULT" storage
+        fi
+        degraded "storage safety hold: $STORAGE_RESULT"
+        return
+    fi
+
+    check_remote_access --recover
+    check_dns --recover
+    if [ -n "$ACCESS_FAILURE_REASON" ]; then
+        fail "$ACCESS_FAILURE_REASON" access
+    fi
+    if [ "$DNS_STATUS" -eq 10 ]; then
+        fail "$DNS_RESULT" dns
+    fi
+
+    run_check critical "docker daemon responsiveness" "docker daemon not responding" docker info
+    # Defer container escalation so DNS/storage checks cannot be starved.
+    check_unhealthy_containers || log "container recovery pending; continuing critical host checks"
+    run_check containers "node-exporter metrics endpoint" "node-exporter metrics not responding" curl -fsS --max-time 5 http://127.0.0.1:9100/metrics
+    run_check containers "grafana health endpoint" "grafana port not responding" curl -fsS --max-time 5 http://127.0.0.1:3000/api/health
+    run_check containers "prometheus health endpoint" "prometheus health not responding" curl -fsS --max-time 5 http://127.0.0.1:9090/-/healthy
+    if [ -n "$CONTAINER_FAILURE_REASON" ]; then
+        fail "$CONTAINER_FAILURE_REASON" containers
+    fi
+    if [ -n "$ACCESS_WARNING" ]; then
+        degraded "$ACCESS_WARNING"
+        return
+    fi
+    if [ "$DNS_STATUS" -ne 0 ]; then
+        degraded "$DNS_RESULT"
+        return
+    fi
+    ok
+}
+
+run_checks

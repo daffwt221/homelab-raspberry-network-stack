@@ -1,10 +1,11 @@
 [Unit]
 Description=Homelab stack healthcheck
-Wants=docker.service
 After=docker.service network-online.target
 
 [Service]
 Type=oneshot
+StateDirectory=homelab-healthcheck
+StateDirectoryMode=0700
 ExecStart=/usr/local/sbin/homelab-healthcheck
 StandardOutput=journal
 StandardError=journal
