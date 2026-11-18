@@ -325,6 +325,11 @@
         args:
             chdir: "{{ stack_path }}"
 
+      - name: Install Pi-hole and configure local DNS
+        ansible.builtin.import_tasks: ops/pihole/tasks.yml
+        tags:
+            - pihole
+
   handlers:
       - name: Reexec systemd
         command: systemctl daemon-reexec

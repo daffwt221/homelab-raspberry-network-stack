@@ -74,8 +74,8 @@ Caddy uses an internal CA for TLS certificates trusted by local clients.
 
 Services use the reserved `home.arpa` namespace.
 
-Pi-hole and Unbound are host-level prerequisites in the current repository; the
-Ansible playbook does not install or configure them yet.
+Ansible provisions Pi-hole and Unbound, internal DNS names, upstream resolution,
+web settings and required blocklists through [ops/pihole](ops/pihole/README.md).
 
 DNS lookup:
 
@@ -276,7 +276,7 @@ flowchart LR
 
     subgraph Pi[Raspberry Pi 2B]
         TS[Tailscale<br/>subnet router and exit node]
-        DNS[Pi-hole and Unbound<br/>host prerequisite]
+        DNS[Pi-hole and Unbound<br/>via Ansible]
         Caddy[Caddy HTTPS<br/>internal CA]
         Apps[Docker services<br/>Grafana, Prometheus, Node Exporter, Portainer<br/>4get optional]
         Host[Host services<br/>Samba, log2ram, watchdog]
@@ -366,7 +366,7 @@ Ansible keeps the setup reproducible and version-controlled.
 - Dependent on Tailscale's coordination server
 - Not suitable for compute-heavy workloads
 - Portainer requires Docker socket access, which should be treated as highly privileged
-- Pi-hole and Unbound are documented host prerequisites but are not yet provisioned by Ansible
+- DNS deployment requires outbound recursive DNS access and successful blocklist downloads
 - The local `fourget-armhf` image must be built separately before enabling the optional profile
 
 ---

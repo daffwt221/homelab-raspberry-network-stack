@@ -1,0 +1,34 @@
+# These probes run after an intentional deployment, not during --check.
+- name: Verify Pi-hole resolves every managed name to the Tailscale IP
+  ansible.builtin.command:
+    argv:
+      - dig
+      - '@127.0.0.1'
+      - "{{ item }}"
+      - A
+      - +short
+      - +time=3
+      - +tries=1
+  loop: "{{ pihole_dns_names_effective }}"
+  register: pihole_name_probe
+  changed_when: false
+  failed_when: pihole_name_probe.rc != 0 or pihole_dns_ipv4_effective not in pihole_name_probe.stdout_lines
+  when: not ansible_check_mode
+
+- name: Verify external resolution through Pi-hole
+  ansible.builtin.command:
+    argv: [dig, '@127.0.0.1', example.com, A, '+time=5', '+tries=1']
+  register: pihole_external_probe
+  changed_when: false
+  failed_when: >-
+    pihole_external_probe.rc != 0 or
+    'status: NOERROR' not in pihole_external_probe.stdout or
+    'ANSWER: 0' in pihole_external_probe.stdout
+  when: not ansible_check_mode
+
+- name: Verify the local Pi-hole administration page
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ pihole_web_probe_port | default(8081) }}/admin/"
+    status_code: [200, 302]
+    follow_redirects: none
+  when: not ansible_check_mode
