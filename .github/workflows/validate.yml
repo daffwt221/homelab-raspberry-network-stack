@@ -84,6 +84,11 @@ jobs:
       - name: Validate Ansible syntax
         run: ansible-playbook -i inventory.ini playbook.yml --syntax-check
 
+      - name: Test healthcheck recovery policy and diagnostics
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s ops/healthcheck/tests -v
+
       - name: Validate Prometheus config
         run: |
           docker run --rm \

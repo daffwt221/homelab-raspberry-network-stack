@@ -2,6 +2,13 @@ user: pi
 compose_path: /home/pi/homelab-stack
 compose_file: docker-compose.yml
 
+# Set the filesystem UUID from findmnt -n -o UUID --mountpoint /mnt/nvme.
+# nvme_uuid: 00000000-0000-0000-0000-000000000000
+# Local access probes. Online Tailscale peers are discovered automatically.
+# healthcheck_ssh_host: 127.0.0.1
+# healthcheck_ssh_port: 22
+# healthcheck_tailscale_interface: tailscale0
+
 docker_data_root: /mnt/nvme/docker
 service_bind_address: 127.0.0.1
 photo_backup_bind_address: 0.0.0.0
