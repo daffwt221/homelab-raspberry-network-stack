@@ -39,6 +39,13 @@ An existing authorized_keys file is retained. When absent, the recovered public-
 file is restored if available; on a fresh host set `photo_backup_public_key` to the
 phone's PUBLIC key. The private key stays on the phone. Missing/empty/unparseable
 keys stop deployment; the image entrypoint also checks the public-key file.
+Compose requires the phone's authorized keys file to exist on the host before
+creating the container.
+If an older Compose run created an empty directory at
+`/etc/ssh/photo-backup/authorized_keys`, stop the intake container if it is
+running, then use `sudo rmdir /etc/ssh/photo-backup/authorized_keys` and rerun
+provisioning. If the directory is not empty, inspect its contents first.
+
 The container's independent SSH host key lives under the NVMe Docker data directory.
 Compare its fingerprint with the phone prompt before accepting it:
 
@@ -55,6 +62,23 @@ sudo ansible-playbook -i inventory.ini playbook.yml --tags photo-backup
 An image label records a hash of all build inputs and UID/GID. An unchanged existing
 image is reused; a missing image rebuilds. This does not automatically refresh the
 Debian base image: request an explicit rebuild when updating it.
+
+### Docker memory limits
+
+The photo service needs Docker to enforce its 128 MiB memory limit and
+96 MiB reservation. Before building or starting the container, Ansible checks
+this with:
+
+```sh
+sudo docker info --format '{{.MemoryLimit}}'
+```
+
+If it prints `false` on Raspberry Pi OS, back up the active kernel command
+line file (normally `/boot/firmware/cmdline.txt`, or `/boot/cmdline.txt` on
+older images). Add `cgroup_enable=memory cgroup_memory=1` to the existing
+single line, preserving all other boot arguments. Reboot the Pi manually
+and confirm that the command prints `true` before rerunning Ansible.
+The playbook leaves boot configuration and reboots to the operator.
 
 ## Independent copy (requires another disk)
 

@@ -181,7 +181,19 @@
 - name: Check for existing phone keys
   ansible.builtin.stat:
     path: /etc/ssh/photo-backup/authorized_keys
+    follow: false
   register: photo_keys_existing
+
+- name: Require an existing phone keys path to be a regular file
+  ansible.builtin.assert:
+    that:
+      - not photo_keys_existing.stat.exists or photo_keys_existing.stat.isreg | default(false)
+    fail_msg: >-
+      /etc/ssh/photo-backup/authorized_keys exists but is not a regular file.
+      If an older Compose deployment created an empty directory there, stop the
+      photo-backup-sftp container if it is running and remove the empty directory
+      with sudo rmdir /etc/ssh/photo-backup/authorized_keys. Then rerun provisioning.
+      Inspect any non-empty directory or other unexpected file type manually.
 
 - name: Check the optional recovered phone public keys
   ansible.builtin.stat:

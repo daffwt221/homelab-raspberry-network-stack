@@ -136,7 +136,12 @@ services:
         bind:
           create_host_path: false
       - '${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/photo-backup/hostkeys:/etc/ssh/hostkeys'
-      - /etc/ssh/photo-backup/authorized_keys:/etc/ssh/photo-backup_authorized_keys:ro
+      - type: bind
+        source: /etc/ssh/photo-backup/authorized_keys
+        target: /etc/ssh/photo-backup_authorized_keys
+        read_only: true
+        bind:
+          create_host_path: false
     read_only: true
     tmpfs:
       - /run:rw,noexec,nosuid,size=8m

@@ -4,6 +4,25 @@
     state: started
     enabled: true
 
+- name: Check whether Docker can enforce container memory limits
+  ansible.builtin.command:
+    argv:
+      - docker
+      - info
+      - --format
+      - "{{ '{{' }}.MemoryLimit{{ '}}' }}"
+  register: photo_backup_memory_limit
+  changed_when: false
+
+- name: Require Docker memory limits before deploying photo SFTP
+  ansible.builtin.assert:
+    that:
+      - photo_backup_memory_limit.stdout | trim == "true"
+    fail_msg: >-
+      Docker cannot enforce the photo SFTP memory limits. Enable the memory
+      cgroup controller on the host and reboot manually if needed; see the
+      'Docker memory limits' section in ops/photo-backup/README.md.
+
 - name: Validate the Compose deployment model
   ansible.builtin.command: docker compose -f {{ stack_compose_file }} config --quiet
   args:
