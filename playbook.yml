@@ -15,8 +15,14 @@
       node_exporter_textfile_path: "{{ node_exporter_textfile_dir | default('/var/lib/node_exporter/textfile') }}"
       install_homelab_healthcheck_effective: "{{ install_homelab_healthcheck | default(true) }}"
       install_homelab_thermal_monitor_effective: "{{ install_homelab_thermal_monitor | default(true) }}"
+      photo_backup_bind_address_effective: "{{ photo_backup_bind_address | default('0.0.0.0') }}"
+      photo_backup_upload_path_effective: "{{ photo_backup_upload_dir | default('/mnt/nvme/photos/inbox/poco-x7-pro') }}"
 
   pre_tasks:
+      - name: Prepare persistent NVMe storage before starting services
+        ansible.builtin.import_tasks: ops/photo-backup/storage.yml
+        tags: [photo-backup]
+
       - name: Check Tailscale state
         stat:
             path: /var/lib/tailscale/tailscaled.state
@@ -29,6 +35,21 @@
                 - tailscale_authkey_effective != 'XXXXX'
             fail_msg: Set tailscale_authkey in group_vars/all.yml or export TAILSCALE_AUTHKEY before first provisioning.
         when: not tailscale_state.stat.exists
+
+      - name: Require NVMe storage before changing the stack
+        ansible.builtin.command: mountpoint -q /mnt/nvme
+        changed_when: false
+
+      - name: Confirm NVMe storage is ext4 before changing the stack
+        ansible.builtin.command: findmnt -n -o FSTYPE -T /mnt/nvme
+        register: stack_nvme_fstype
+        changed_when: false
+
+      - name: Refuse stack deployment without the expected NVMe filesystem
+        ansible.builtin.assert:
+            that:
+                - stack_nvme_fstype.stdout | trim == "ext4"
+            fail_msg: /mnt/nvme must be mounted as ext4 before deploying the stack.
 
   tasks:
       - name: Remove legacy Debian repository previously added for log2ram
@@ -188,6 +209,8 @@
             owner: "{{ stack_user }}"
             group: "{{ stack_user }}"
             mode: "0644"
+        tags:
+            - photo-backup
 
       - name: Copy Prometheus configuration
         copy:
@@ -268,6 +291,11 @@
             daemon_reload: true
         when: install_homelab_thermal_monitor_effective | bool
 
+      - name: Configure restricted phone photo SFTP intake
+        ansible.builtin.import_tasks: ops/photo-backup/tasks.yml
+        tags:
+            - photo-backup
+
       - name: Write Docker Compose environment
         copy:
             dest: "{{ stack_path }}/.env"
@@ -278,8 +306,19 @@
                 DOCKER_DATA_ROOT={{ docker_storage_path }}
                 SERVICE_BIND_ADDRESS={{ '127.0.0.1' if service_bind_address_requested == 'tailscale' else service_bind_address_requested }}
                 TAILSCALE_IP={{ tailscale_ipv4.stdout }}
+                PHOTO_BACKUP_BIND_ADDRESS={{ photo_backup_bind_address_effective }}
+                PHOTO_BACKUP_UPLOAD_PATH={{ photo_backup_upload_path }}
+                PHOTO_BACKUP_UID={{ photo_backup_uid }}
+                PHOTO_BACKUP_GID={{ photo_backup_gid }}
         tags:
             - compose_environment
+            - photo-backup
+
+      - name: Deploy the photo SFTP container
+        ansible.builtin.import_tasks: ops/photo-backup/deploy.yml
+        when: not ansible_check_mode
+        tags:
+            - photo-backup
 
       - name: Run containers
         command: docker compose -f {{ stack_compose_file }} up -d

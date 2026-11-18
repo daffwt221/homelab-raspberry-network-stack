@@ -10,6 +10,6 @@ caddy/config/
 *.crt
 *.key
 
-# Python caches from Pi-hole provisioning and tests
+# Python caches from provisioning and tests
 __pycache__/
 *.py[cod]

@@ -207,6 +207,16 @@ through Node Exporter's textfile collector. Logs are kept under
 
 The 4get scraper service is behind the optional Compose profile. To include it, run Compose with `--profile optional`.
 
+### Phone photo backups
+
+FolderSync uploads phone photos and videos over encrypted SFTP to the
+`photo-backup-sftp` container on port 2222. Uploads are stored on the NVMe;
+the container has a 128 MiB memory limit and key-only authentication.
+See [photo backup setup](ops/photo-backup/README.md) and the
+[data flow](ops/photo-backup/flow.md) for provisioning and phone configuration.
+Keep uploads one-way, disable remote deletion, and retain another independent
+backup before deleting originals or cloud copies.
+
 ### Automated provisioning (Ansible)
 
 Once configured, provision and deploy everything with a single command:
@@ -367,7 +377,7 @@ Ansible keeps the setup reproducible and version-controlled.
 - [x] NVMe-backed container data paths
 - [x] Prometheus alert rules
 - [x] Tailscale subnet route / exit node provisioning
-- [ ] Syncthing for automated photo backups
+- [x] Provision phone photo intake with FolderSync and containerized SFTP
 - [x] Private HTTPS reverse proxy with Caddy
 - [x] Internal DNS with Pi-hole + home.arpa
 - [ ] NAS backup automation
