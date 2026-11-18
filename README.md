@@ -200,6 +200,9 @@ docker compose ps
 After provisioning, the host-level `homelab-healthcheck.timer` checks containers,
 local DNS, the NVMe mount, SSH, and Tailscale. It attempts service recovery and
 saves bounded diagnostic logs, including container logs before restarts.
+Containers that Docker reports as `starting` can finish starting before their
+HTTP probes count towards recovery. A critical container that stays unhealthy
+after a restart attempt can still count towards the host reboot threshold.
 
 Eligible host reboots share a persistent cooldown of 10, 20, then 30 minutes
 after boot. Limits apply per recovery episode, and 30 minutes of continuously

@@ -1,140 +1,120 @@
-"""Run the actual shell function with fakes; never execute the healthcheck body."""
+"""Exercise Docker recovery across timer ticks without touching real containers."""
 import os
 from pathlib import Path
-import shlex
 import subprocess
 import tempfile
 import unittest
 
-
-SCRIPT = Path(__file__).resolve().parents[1] / 'homelab-healthcheck'
-
-
-def function_under_test():
-    script = SCRIPT.read_text()
-    start = script.index('check_unhealthy_containers() {')
-    end = script.index('\n}\n', start) + len('\n}\n')
-    return script[start:end]
+from test_coordinator import extract
 
 
 @unittest.skipUnless(os.name == 'posix', 'POSIX shell required')
 class ContainerRecoveryTests(unittest.TestCase):
-    def scan(self, unhealthy, states=None, restart_failures=()):
-        states = states or {}
-        with tempfile.TemporaryDirectory() as temp:
-            calls = Path(temp) / 'calls'
-            calls.touch()
-            # Each fake handles only the invocation expected from this function.
-            # Unknown commands fail instead of reaching the host Docker daemon.
-            cases = []
-            for name, state in states.items():
-                action = 'return 1' if state == 'inspect-error' else "printf '%s\\n' " + shlex.quote(state)
-                cases.append(shlex.quote(name) + ') ' + action + ' ;;')
-            prelude = r"""
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.calls = self.root / 'calls'
+        self.calls.touch()
+
+    def scan(self, *, healthy='', starting='', unhealthy='', restart_failure='', list_failure=''):
+        prelude = r"""
 set -eu
 CRITICAL_CONTAINERS="caddy prometheus node-exporter grafana portainer"
 log() { printf 'log: %s\n' "$*"; }
 timeout() { shift; "$@"; }
-sleep() { :; }
 capture_container_logs() { printf 'capture %s\n' "$1" >> "$TEST_CALLS"; }
-fail() {
-    printf 'fail\n' >> "$TEST_CALLS"
-    printf 'failure: %s\n' "$1"
-    exit 42
-}
 docker() {
     case "$1" in
-        ps) printf '%s\n' "$TEST_UNHEALTHY" ;;
+        ps)
+            for arg do
+                case "$arg" in
+                    "health=$TEST_LIST_FAILURE") return 1 ;;
+                    health=healthy) printf '%s\n' "$TEST_HEALTHY"; return ;;
+                    health=starting) printf '%s\n' "$TEST_STARTING"; return ;;
+                    health=unhealthy) printf '%s\n' "$TEST_UNHEALTHY"; return ;;
+                esac
+            done
+            return 99 ;;
         restart)
             printf 'restart %s\n' "$2" >> "$TEST_CALLS"
-            case " $TEST_RESTART_FAILURES " in
-                *" $2 "*) return 1 ;;
-            esac
-            return 0 ;;
-        inspect)
-            for inspected do :; done
-            printf 'inspect %s\n' "$inspected" >> "$TEST_CALLS"
-            case "$inspected" in
-"""
-            prelude += '\n'.join(cases)
-            prelude += r"""
-                *) printf 'healthy\n' ;;
-            esac ;;
+            [ "$2" != "$TEST_RESTART_FAILURE" ] ;;
         *) return 99 ;;
     esac
 }
 """
-            env = dict(os.environ, TEST_CALLS=str(calls), TEST_UNHEALTHY='\n'.join(unhealthy),
-                       TEST_RESTART_FAILURES=' '.join(restart_failures))
-            result = subprocess.run(['/bin/sh'], input=prelude + function_under_test() +
-                                    '\nif check_unhealthy_containers; then :; else fail \"$CONTAINER_FAILURE_REASON\"; fi\n', text=True,
-                                    capture_output=True, env=env, timeout=5)
-            self.last_all_calls = calls.read_text().splitlines()
-            return result, [call for call in self.last_all_calls if not call.startswith('capture ')]
-
-    def test_recovered_first_does_not_hide_second_failure(self):
-        result, calls = self.scan(['caddy', 'prometheus'], {'prometheus': 'unhealthy'})
-        self.assertEqual(result.returncode, 42, result.stderr)
-        self.assertEqual(calls, ['restart caddy', 'inspect caddy', 'restart prometheus', 'inspect prometheus', 'fail'])
-        self.assertIn('prometheus (health=unhealthy)', result.stdout)
-
-    def test_all_recovered_containers_are_checked(self):
-        result, calls = self.scan(['caddy', 'prometheus'])
+        env = dict(os.environ, TEST_CALLS=str(self.calls), TEST_HEALTHY=healthy,
+                   TEST_STARTING=starting, TEST_UNHEALTHY=unhealthy,
+                   TEST_RESTART_FAILURE=restart_failure, TEST_LIST_FAILURE=list_failure,
+                   CONTAINER_RESTART_DIR=str(self.root / 'recovery'))
+        result = subprocess.run(
+            ['/bin/sh'], input=prelude + extract('check_unhealthy_containers') + r"""
+status=0
+check_unhealthy_containers || status=$?
+printf 'RESULT:%s:%s:%s\n' "$status" "$CONTAINERS_STARTING" "$CONTAINER_FAILURE_REASON"
+""", text=True, capture_output=True, env=env, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ['restart caddy', 'inspect caddy', 'restart prometheus', 'inspect prometheus'])
-        self.assertNotIn('non-critical unhealthy containers ignored', result.stdout)
+        _, status, waiting, failures = result.stdout.splitlines()[-1].split(':', 3)
+        return int(status), waiting.split(), failures
 
-    def test_failed_restart_does_not_skip_remaining_containers(self):
-        result, calls = self.scan(['caddy', 'prometheus'], restart_failures=['caddy'])
-        self.assertEqual(result.returncode, 42, result.stderr)
-        self.assertEqual(calls, ['restart caddy', 'restart prometheus', 'inspect prometheus', 'fail'])
-        self.assertIn('caddy (restart failed)', result.stdout)
+    def test_slow_start_does_not_repeat_restart_or_count_as_failure(self):
+        self.assertEqual(self.scan(unhealthy='grafana id-1'), (0, ['grafana'], ''))
+        for _ in range(4):
+            self.assertEqual(self.scan(starting='grafana'), (0, ['grafana'], ''))
+        self.assertEqual(self.scan(healthy='grafana'), (0, [], ''))
+        self.assertEqual(self.calls.read_text().splitlines(), ['capture grafana', 'restart id-1'])
 
-    def test_multiple_failures_count_once_and_report_every_container(self):
-        result, calls = self.scan(['caddy', 'prometheus'], {'caddy': 'unhealthy', 'prometheus': 'starting'})
-        self.assertEqual(result.returncode, 42, result.stderr)
-        self.assertEqual(calls.count('fail'), 1)
-        summary = [line for line in result.stdout.splitlines() if line.startswith('failure:')][0]
-        self.assertIn('caddy (health=unhealthy)', summary)
-        self.assertIn('prometheus (health=starting)', summary)
+    def test_persistent_failures_escalate_without_restarting_every_tick(self):
+        unhealthy = 'caddy caddy-id\nprometheus prometheus-id'
+        self.assertEqual(self.scan(unhealthy=unhealthy), (0, ['caddy', 'prometheus'], ''))
+        for _ in range(3):
+            status, waiting, failures = self.scan(unhealthy=unhealthy)
+            self.assertEqual((status, waiting), (1, []))
+            self.assertIn('caddy still unhealthy after restart attempt', failures)
+            self.assertIn('prometheus still unhealthy after restart attempt', failures)
+        self.assertEqual(self.calls.read_text().splitlines(), [
+            'capture caddy', 'restart caddy-id', 'capture prometheus', 'restart prometheus-id',
+        ])
 
-    def test_noncritical_containers_are_not_restarted_or_misreported(self):
-        result, calls = self.scan(['optional-app', 'caddy'])
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ['restart caddy', 'inspect caddy'])
-        ignored = [line for line in result.stdout.splitlines() if 'non-critical unhealthy containers ignored' in line]
-        self.assertEqual(len(ignored), 1)
-        self.assertIn('optional-app', ignored[0])
-        self.assertNotIn('caddy', ignored[0])
+    def test_healthy_observation_allows_restart_of_a_later_failure(self):
+        self.scan(unhealthy='grafana id-1')
+        self.scan(healthy='grafana')
+        self.assertEqual(self.scan(unhealthy='grafana id-1'), (0, ['grafana'], ''))
+        self.assertEqual(self.calls.read_text().splitlines().count('restart id-1'), 2)
 
-    def test_no_unhealthy_containers(self):
-        result, calls = self.scan([])
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, [])
+    def test_recreated_container_has_its_own_restart_attempt(self):
+        self.scan(unhealthy='grafana id-1')
+        self.assertEqual(self.scan(unhealthy='grafana id-2'), (0, ['grafana'], ''))
+        self.assertEqual(self.calls.read_text().splitlines(), [
+            'capture grafana', 'restart id-1', 'capture grafana', 'restart id-2',
+        ])
 
-    def test_only_noncritical_containers(self):
-        result, calls = self.scan(['optional-app'])
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, [])
-        self.assertIn('non-critical unhealthy containers ignored', result.stdout)
+    def test_failed_restart_does_not_hide_other_containers(self):
+        status, waiting, failures = self.scan(
+            unhealthy='caddy caddy-id\nprometheus prometheus-id', restart_failure='caddy-id')
+        self.assertEqual((status, waiting), (1, ['prometheus']))
+        self.assertIn('caddy restart failed', failures)
+        self.assertEqual(self.calls.read_text().splitlines(), [
+            'capture caddy', 'restart caddy-id', 'capture prometheus', 'restart prometheus-id',
+        ])
 
-    def test_inspection_failure_counts_once_and_scan_continues(self):
-        result, calls = self.scan(['caddy', 'prometheus'], {'caddy': 'inspect-error'})
-        self.assertEqual(result.returncode, 42, result.stderr)
-        self.assertEqual(calls, ['restart caddy', 'inspect caddy', 'restart prometheus', 'inspect prometheus', 'fail'])
-        self.assertIn('caddy (health=unknown)', result.stdout)
+    def test_failed_restart_is_not_retried_on_the_next_tick(self):
+        self.scan(unhealthy='caddy caddy-id', restart_failure='caddy-id')
+        status, waiting, failures = self.scan(unhealthy='caddy caddy-id')
+        self.assertEqual((status, waiting), (1, []))
+        self.assertIn('caddy still unhealthy after restart attempt', failures)
+        self.assertEqual(self.calls.read_text().splitlines(), ['capture caddy', 'restart caddy-id'])
 
-    def test_existing_no_healthcheck_policy_is_preserved(self):
-        result, calls = self.scan(['caddy', 'prometheus'], {'caddy': 'none'})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('inspect prometheus', calls)
+    def test_optional_container_is_logged_but_does_not_restart_or_hold_checks(self):
+        self.assertEqual(self.scan(starting='optional-starting', unhealthy='optional-app optional-id'),
+                         (0, [], ''))
+        self.assertEqual(self.calls.read_text().splitlines(), ['capture optional-app'])
 
-    def test_logs_captured_before_any_restart_including_noncritical_containers(self):
-        result, _ = self.scan(['optional-app', 'caddy', 'prometheus'])
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.last_all_calls, ['capture optional-app', 'capture caddy',
-                         'restart caddy', 'inspect caddy', 'capture prometheus',
-                         'restart prometheus', 'inspect prometheus'])
+    def test_docker_status_error_is_not_reported_as_healthy(self):
+        status, waiting, failures = self.scan(list_failure='starting')
+        self.assertEqual((status, waiting), (1, []))
+        self.assertIn('could not list Docker container health', failures)
+        self.assertEqual(self.calls.read_text(), '')
 
 
 if __name__ == '__main__':

@@ -16,7 +16,7 @@ def extract(name):
 
 class CoordinatorTests(unittest.TestCase):
     def run_checks(self, critical_failure='', container_failure=True, access_state='healthy',
-                   storage_status=0, dns_status=0):
+                   storage_status=0, dns_status=0, starting=''):
         prelude = r"""
 set -eu
 CONTAINER_FAILURE_REASON=""
@@ -45,6 +45,7 @@ run_check() {
 }
 check_unhealthy_containers() {
     echo SCAN:containers
+    CONTAINERS_STARTING=$TEST_STARTING
     if [ "$TEST_CONTAINER_FAILURE" = yes ]; then
         CONTAINER_FAILURE_REASON="caddy did not recover"
         return 1
@@ -64,8 +65,10 @@ ok() { echo HEALTHY; }
 """
         env = dict(os.environ, TEST_CRITICAL_FAILURE=critical_failure, TEST_ACCESS_STATE=access_state,
                    TEST_CONTAINER_FAILURE='yes' if container_failure else 'no',
-                   TEST_STORAGE_STATUS=str(storage_status), TEST_DNS_STATUS=str(dns_status))
-        return subprocess.run(['/bin/sh'], input=prelude + extract('run_checks') + '\nrun_checks\n',
+                   TEST_STORAGE_STATUS=str(storage_status), TEST_DNS_STATUS=str(dns_status),
+                   TEST_STARTING=starting + (' ' if starting else ''))
+        script = prelude + extract('check_container_endpoint') + extract('run_checks')
+        return subprocess.run(['/bin/sh'], input=script + '\nrun_checks\n',
                               text=True, capture_output=True, env=env, timeout=5)
 
     def test_container_failure_does_not_starve_dns_or_storage(self):
@@ -120,6 +123,19 @@ ok() { echo HEALTHY; }
         self.assertIn('CHECK:storage', result.stdout)
         self.assertIn('CHECK:dns:--recover', result.stdout)
         self.assertTrue(result.stdout.splitlines()[-1].startswith('FAIL:containers:'))
+
+    def test_starting_grafana_defers_its_probe_and_stability_but_checks_other_services(self):
+        result = self.run_checks('grafana health endpoint', container_failure=False, starting='grafana')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('CHECK:containers:grafana health endpoint', result.stdout)
+        self.assertIn('CHECK:containers:prometheus health endpoint', result.stdout)
+        self.assertIn('CHECK:dns:--recover', result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-1], 'INCONCLUSIVE')
+
+    def test_startup_does_not_hide_a_failure_in_another_service(self):
+        result = self.run_checks('prometheus health endpoint', container_failure=False, starting='grafana')
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertIn('FAIL:containers:prometheus health not responding', result.stdout)
 
     def test_access_checks_run_even_when_docker_is_unavailable(self):
         result = self.run_checks('docker daemon responsiveness')

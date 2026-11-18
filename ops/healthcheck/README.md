@@ -22,9 +22,23 @@ than the wall clock, so NTP adjustments do not shorten it.
 
 Container failures share a budget of **three host reboot requests** across all
 containers and boots. This includes the unhealthy-container scan and HTTP probes
-for Node Exporter, Grafana and Prometheus. Once exhausted, container restarts,
-checks and diagnostics continue, but those failures no longer request host reboots.
-The budget counts durable requests, even if systemctl rejects a request.
+for Node Exporter, Grafana and Prometheus. Portainer is checked by Docker with an
+HTTP request to its status API. The budget counts durable requests, even if
+systemctl rejects a request. Once exhausted, checks and diagnostics continue,
+but container failures no longer request host reboots.
+
+The watchdog attempts one restart per critical container ID until Docker reports
+it healthy again. It saves logs before the attempt and lets Docker report
+`starting`, `healthy` or `unhealthy` on later checks instead of judging the
+restart after a fixed delay. A container still `unhealthy` after an attempt
+can count towards the host reboot threshold without being restarted again
+on every tick. These per-container markers live in `/run` for the current boot;
+the host reboot budget still persists across boots.
+
+While a critical container is `starting`, its HTTP probe is deferred, and
+that observation alone neither counts as a failure nor advances the healthy
+interval. Other services and infrastructure are still checked. Grafana's
+Docker startup period is four minutes to accommodate plugin loading on the Pi 2.
 
 DNS and storage each have a budget of **one host reboot request per episode**.
 They must reach the threshold on consecutive checks of their own category, and
@@ -245,5 +259,5 @@ behavior, continuous stability, critical-check priority, bounded snapshots,
 retention, DNS timeout and upstream scenarios, storage holds, file-write failures
 and real concurrent state reservations. No test
 runs the complete live healthcheck, restarts a real service or reboots the host.
-The existing container scan still examines its entire snapshot. Its treatment of
-`none` (no Docker healthcheck) is preserved; redesigning that policy is separate.
+The container tests exercise multiple ticks, including a slow startup, a
+persistent fault, and a later healthy observation that allows a new restart.

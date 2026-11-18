@@ -83,7 +83,8 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      # The Pi 2 needed over three minutes to load the Prometheus plugin.
+      start_period: 4m
 
   portainer:
     image: portainer/portainer-ce:2.39.7-linux-arm-alpine
@@ -98,7 +99,7 @@ services:
       - ${DOCKER_DATA_ROOT:-/mnt/nvme/docker}/portainer:/data
     mem_limit: 80m
     healthcheck:
-      test: [CMD, /portainer, --health-check]
+      test: [CMD, wget, -q, -O, /dev/null, -T, '5', 'http://127.0.0.1:9000/api/system/status']
       interval: 30s
       timeout: 5s
       retries: 3
