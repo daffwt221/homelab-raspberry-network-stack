@@ -143,6 +143,7 @@ user: pi
 compose_path: /home/pi/homelab-stack
 compose_file: docker-compose.yml
 
+nvme_uuid: YOUR_NVME_FILESYSTEM_UUID
 docker_data_root: /mnt/nvme/docker
 service_bind_address: 127.0.0.1
 enable_log2ram: false
@@ -152,6 +153,10 @@ tailscale_hostname: homelab-pi
 tailscale_advertise_routes: 192.168.1.0/24
 tailscale_advertise_exit_node: true
 ```
+
+With healthchecks enabled, set `nvme_uuid` to the filesystem UUID reported by
+`findmnt -n -o UUID --mountpoint /mnt/nvme`. If the local DNS prerequisites
+are still being set up, set `install_homelab_healthcheck: false` until they are ready.
 
 You can generate a Tailscale auth key at [login.tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys).
 The auth key can also be supplied with the `TAILSCALE_AUTHKEY` environment variable for the first provisioning run.
@@ -169,7 +174,8 @@ Prometheus config and alert rules live in `prometheus/` and are copied by the pl
 
 Pull requests are checked by the validation workflow in
 `.github/workflows/validate.yml`. It validates shell scripts, YAML, Docker
-Compose, Ansible syntax, and Prometheus configuration. See
+Compose, Ansible syntax, Prometheus configuration, and the host healthcheck
+test suite. See
 [validation-ci.md](docs/validation-ci.md).
 
 Container data is stored under `docker_data_root`, so Caddy, Grafana, Prometheus,
@@ -191,13 +197,15 @@ Portainer. Check their status after deployment with:
 docker compose ps
 ```
 
-The production Pi also runs a host-level recovery timer at
-`/etc/systemd/system/homelab-healthcheck.timer`. It calls
-`/usr/local/sbin/homelab-healthcheck` once per minute and reboots the node after
-three consecutive failures of Docker, Node Exporter, Grafana, Prometheus, the
-NVMe mount, or recent USB/storage kernel checks. This is documented in
-[nvme-usb-power-instability.md](docs/troubleshooting/nvme-usb-power-instability.md).
-The source files live under `ops/healthcheck/`.
+After provisioning, the host-level `homelab-healthcheck.timer` checks containers,
+local DNS, the NVMe mount, SSH, and Tailscale. It attempts service recovery and
+saves bounded diagnostic logs, including container logs before restarts.
+
+Eligible host reboots share a persistent cooldown of 10, 20, then 30 minutes
+after boot. Limits apply per recovery episode, and 30 minutes of continuously
+healthy checks reset the counters. Storage faults such as ext4 errors or a
+read-only mount block automatic reboots. See the
+[healthcheck guide](ops/healthcheck/README.md) for limits, setup, and diagnostics.
 
 Thermal and NVMe SMART samples are logged by
 `/etc/systemd/system/homelab-thermal-monitor.timer` and exported to Prometheus
@@ -216,11 +224,11 @@ ansible-playbook -i inventory.ini playbook.yml
 ```
 
 The playbook handles installing Docker, Docker Compose, Tailscale, Samba, and
-SMART tooling; authenticating the node; enabling IPv4 forwarding; advertising
-the subnet route and exit node; configuring the hardware watchdog; optionally
-enabling log2ram when requested; installing the homelab healthcheck and thermal
-monitor systemd timers; copying Prometheus configuration; and deploying the
-container stack automatically.
+SMART tooling. It configures Tailscale authentication, IPv4 and IPv6
+forwarding for advertised routes, the hardware watchdog, and optional log2ram.
+It copies the Prometheus configuration and deploys the container stack. The
+host healthcheck timer is enabled at the end of provisioning when configured.
+The playbook also installs the thermal monitor.
 
 After the first Tailscale run, approve the advertised subnet route and exit node in the Tailscale admin console if required by your tailnet policy.
 
