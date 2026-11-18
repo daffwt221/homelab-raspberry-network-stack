@@ -1,0 +1,18 @@
+# Managed by Ansible. Values reproduced from the original SD backup.
+server:
+  interface: 127.0.0.1
+  port: {{ unbound_port | default(5335) }}
+
+  do-ip4: yes
+  do-ip6: no
+  do-udp: yes
+  do-tcp: yes
+
+  hide-identity: yes
+  hide-version: yes
+
+  qname-minimisation: yes
+  prefetch: yes
+
+  cache-min-ttl: 300
+  cache-max-ttl: 86400

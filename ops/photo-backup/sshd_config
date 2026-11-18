@@ -1,0 +1,35 @@
+Port 22
+AddressFamily any
+HostKey /etc/ssh/hostkeys/ssh_host_ed25519_key
+PidFile /run/sshd.pid
+UsePAM no
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+AllowUsers photo-backup
+AuthorizedKeysFile /etc/ssh/photo-backup_authorized_keys
+StrictModes yes
+MaxAuthTries 3
+LoginGraceTime 20
+LogLevel VERBOSE
+SyslogFacility AUTHPRIV
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+PermitTunnel no
+PermitTTY no
+PermitUserEnvironment no
+PermitUserRC no
+Subsystem sftp internal-sftp
+
+Match User photo-backup
+    ChrootDirectory /srv/sftp
+    ForceCommand internal-sftp -d /upload -u 0027 -l INFO
+    AuthenticationMethods publickey
+    AllowTcpForwarding no
+    AllowAgentForwarding no
+    X11Forwarding no
+    PermitTunnel no
+    PermitTTY no

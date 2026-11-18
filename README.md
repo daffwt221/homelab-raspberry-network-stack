@@ -74,8 +74,8 @@ Caddy uses an internal CA for TLS certificates trusted by local clients.
 
 Services use the reserved `home.arpa` namespace.
 
-Pi-hole and Unbound are host-level prerequisites in the current repository; the
-Ansible playbook does not install or configure them yet.
+Ansible provisions Pi-hole and Unbound, internal DNS names, upstream resolution,
+web settings and required blocklists through [ops/pihole](ops/pihole/README.md).
 
 DNS lookup:
 
@@ -215,6 +215,16 @@ through Node Exporter's textfile collector. Logs are kept under
 
 The 4get scraper service is behind the optional Compose profile. To include it, run Compose with `--profile optional`.
 
+### Phone photo backups
+
+FolderSync uploads phone photos and videos over encrypted SFTP to the
+`photo-backup-sftp` container on port 2222. Uploads are stored on the NVMe;
+the container has a 128 MiB memory limit and key-only authentication.
+See [photo backup setup](ops/photo-backup/README.md) and the
+[data flow](ops/photo-backup/flow.md) for provisioning and phone configuration.
+Keep uploads one-way, disable remote deletion, and retain another independent
+backup before deleting originals or cloud copies.
+
 ### Automated provisioning (Ansible)
 
 Once configured, provision and deploy everything with a single command:
@@ -274,7 +284,7 @@ flowchart LR
 
     subgraph Pi[Raspberry Pi 2B]
         TS[Tailscale<br/>subnet router and exit node]
-        DNS[Pi-hole and Unbound<br/>host prerequisite]
+        DNS[Pi-hole and Unbound<br/>via Ansible]
         Caddy[Caddy HTTPS<br/>internal CA]
         Apps[Docker services<br/>Grafana, Prometheus, Node Exporter, Portainer<br/>4get optional]
         Host[Host services<br/>Samba, log2ram, watchdog]
@@ -364,7 +374,7 @@ Ansible keeps the setup reproducible and version-controlled.
 - Dependent on Tailscale's coordination server
 - Not suitable for compute-heavy workloads
 - Portainer requires Docker socket access, which should be treated as highly privileged
-- Pi-hole and Unbound are documented host prerequisites but are not yet provisioned by Ansible
+- DNS deployment requires outbound recursive DNS access and successful blocklist downloads
 - The local `fourget-armhf` image must be built separately before enabling the optional profile
 
 ---
@@ -375,7 +385,7 @@ Ansible keeps the setup reproducible and version-controlled.
 - [x] NVMe-backed container data paths
 - [x] Prometheus alert rules
 - [x] Tailscale subnet route / exit node provisioning
-- [ ] Syncthing for automated photo backups
+- [x] Provision phone photo intake with FolderSync and containerized SFTP
 - [x] Private HTTPS reverse proxy with Caddy
 - [x] Internal DNS with Pi-hole + home.arpa
 - [ ] NAS backup automation

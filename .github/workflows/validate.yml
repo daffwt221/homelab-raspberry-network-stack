@@ -25,6 +25,7 @@ jobs:
         run: |
           shellcheck ops/healthcheck/homelab-healthcheck
           shellcheck ops/thermal-monitor/homelab-thermal-monitor
+          shellcheck ops/photo-backup/entrypoint.sh
 
       - name: Validate YAML
         run: |
@@ -33,6 +34,17 @@ jobs:
             prometheus/prometheus.yml \
             prometheus/alerts.yml \
             playbook.yml \
+            ops/photo-backup/tasks.yml \
+            ops/photo-backup/deploy.yml \
+            ops/photo-backup/storage.yml \
+            ops/photo-backup/secondary.yml \
+            collections/requirements.yml \
+            ops/pihole/tasks.yml \
+            ops/pihole/configure.yml \
+            ops/pihole/unbound.yml \
+            ops/pihole/dns-services.yml \
+            ops/pihole/verify.yml \
+            ops/pihole/defaults.yml \
             group_vars/all.yml.example \
             .github/workflows/*.yml
 
@@ -41,6 +53,33 @@ jobs:
           COMPOSE_PROJECT_NAME=homelab \
           TAILSCALE_IP=100.64.0.1 \
           docker compose config --quiet
+
+      - name: Test Pi-hole configuration convergence
+        run: python3 -m unittest discover -s ops/pihole/tests -v
+
+      - name: Test photo metadata migration and backup guards
+        run: sudo python3 -m unittest discover -s ops/photo-backup/tests -v
+
+      - name: Test isolated SFTP transfer and persistence
+        run: |
+          docker build --tag homelab/photo-backup-sftp:test ops/photo-backup
+          sudo python3 ops/photo-backup/test_sftp.py --image homelab/photo-backup-sftp:test
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build photo SFTP image for Raspberry Pi ARMv7
+        run: |
+          docker buildx build \
+            --platform linux/arm/v7 \
+            --tag homelab/photo-backup-sftp:ci \
+            --load ops/photo-backup
+
+      - name: Install declared Ansible collections
+        run: ansible-galaxy collection install -r collections/requirements.yml
 
       - name: Validate Ansible syntax
         run: ansible-playbook -i inventory.ini playbook.yml --syntax-check

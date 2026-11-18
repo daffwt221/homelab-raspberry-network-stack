@@ -1,0 +1,83 @@
+- name: Require an explicit separate backup destination when enabled
+  ansible.builtin.assert:
+    that:
+      - photo_backup_secondary_mount | default('') | length > 0
+      - photo_backup_secondary_dir | default('') | length > 0
+    fail_msg: Configure a separate mounted disk; the NVMe itself is not an independent backup.
+  when: photo_backup_secondary_enabled | default(false) | bool
+
+- name: Install the optional copy dependency
+  ansible.builtin.apt:
+    name: rsync
+    state: present
+  when: photo_backup_secondary_enabled | default(false) | bool
+
+- name: Install the guarded secondary-copy helper
+  ansible.builtin.copy:
+    src: ./ops/photo-backup/secondary.py
+    dest: /usr/local/sbin/photo-backup-secondary
+    owner: root
+    group: root
+    mode: '0755'
+  when: photo_backup_secondary_enabled | default(false) | bool
+
+- name: Write the explicit secondary-copy configuration
+  ansible.builtin.copy:
+    dest: /etc/photo-backup-secondary.json
+    owner: root
+    group: root
+    mode: '0600'
+    content: >-
+      {{ {'source': photo_backup_upload_path,
+          'mount': photo_backup_secondary_mount,
+          'destination': photo_backup_secondary_dir} | to_nice_json }}
+  when: photo_backup_secondary_enabled | default(false) | bool
+
+- name: Install the guarded daily-copy service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/photo-backup-secondary.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Copy photo uploads to an independent mounted filesystem
+      RequiresMountsFor={{ photo_backup_upload_path }} {{ photo_backup_secondary_mount }}
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/photo-backup-secondary /etc/photo-backup-secondary.json
+      UMask=0077
+      Nice=15
+      IOSchedulingClass=idle
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectSystem=strict
+      ProtectHome=true
+      ReadWritePaths={{ photo_backup_secondary_mount }}
+  when: photo_backup_secondary_enabled | default(false) | bool
+
+- name: Install the daily independent-copy timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/photo-backup-secondary.timer
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Daily independent copy of phone uploads
+      [Timer]
+      OnCalendar=*-*-* 04:00:00
+      RandomizedDelaySec=30m
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+  when: photo_backup_secondary_enabled | default(false) | bool
+
+- name: Check whether a secondary-copy timer was previously installed
+  ansible.builtin.stat:
+    path: /etc/systemd/system/photo-backup-secondary.timer
+  register: photo_secondary_timer
+
+- name: Enable the copy timer only when explicitly configured
+  ansible.builtin.systemd:
+    name: photo-backup-secondary.timer
+    enabled: "{{ photo_backup_secondary_enabled | default(false) | bool }}"
+    state: "{{ 'started' if photo_backup_secondary_enabled | default(false) | bool else 'stopped' }}"
+    daemon_reload: true
+  when: photo_secondary_timer.stat.exists or photo_backup_secondary_enabled | default(false) | bool

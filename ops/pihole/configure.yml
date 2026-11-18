@@ -1,0 +1,64 @@
+- name: Load the nonsecret settings reproduced from the original SD
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/ops/pihole/defaults.yml"
+    name: pihole_defaults
+
+- name: Define the managed DNS names and Tailscale address
+  ansible.builtin.set_fact:
+    pihole_dns_names_effective: "{{ pihole_dns_names | default(pihole_defaults.dns_names) }}"
+    pihole_dns_ipv4_effective: "{{ pihole_dns_ipv4 | default(tailscale_ipv4.stdout | default('')) | trim }}"
+
+- name: Validate the DNS configuration inputs
+  ansible.builtin.assert:
+    that:
+      - pihole_dns_names_effective is sequence
+      - pihole_dns_names_effective is not string
+      - pihole_dns_names_effective | unique | length == pihole_dns_names_effective | length
+      - pihole_dns_ipv4_effective is match('^100\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$')
+    fail_msg: Supply unique DNS names and the Raspberry Pi Tailscale IPv4 address.
+
+- name: Validate each managed DNS name
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item is match('^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$')
+    fail_msg: "Invalid DNS name: {{ item }}"
+  loop: "{{ pihole_dns_names_effective }}"
+
+- name: Build the complete managed Pi-hole settings
+  ansible.builtin.set_fact:
+    pihole_desired_settings:
+      dns.hosts: "{{ pihole_dns_names_effective | map('regex_replace', '^', pihole_dns_ipv4_effective ~ ' ') | list }}"
+      dns.upstreams: "{{ pihole_upstreams | default(['127.0.0.1#' ~ (unbound_port | default(5335) | string)]) }}"
+      dns.interface: "{{ pihole_dns_interface | default(pihole_defaults.dns_interface) }}"
+      dns.listeningMode: "{{ pihole_listening_mode | default(pihole_defaults.listening_mode) }}"
+      webserver.port: "{{ pihole_web_port | default(pihole_defaults.web_port) }}"
+      webserver.headers: "{{ pihole_web_headers | default(pihole_defaults.web_headers) }}"
+      webserver.interface.theme: "{{ pihole_web_theme | default(pihole_defaults.web_theme) }}"
+
+- name: Inspect the Pi-hole configuration file
+  ansible.builtin.stat:
+    path: "{{ pihole_config_file | default('/etc/pihole/pihole.toml') }}"
+  register: pihole_config_stat
+
+- name: Require Pi-hole configuration before applying DNS settings
+  ansible.builtin.assert:
+    that:
+      - pihole_config_stat.stat.exists
+    fail_msg: Install Pi-hole before configuring its DNS records.
+  when: not ansible_check_mode
+
+# The helper's --check mode only reads configuration, including under Ansible --check.
+# It changes only owned keys through the supported FTL CLI, preserving the password.
+- name: Converge the Pi-hole DNS and web settings
+  ansible.builtin.command:
+    argv: >-
+      {{ ['python3', playbook_dir ~ '/ops/pihole/manage.py', 'settings',
+          '--path', pihole_config_file | default('/etc/pihole/pihole.toml'),
+          '--binary', pihole_ftl_binary | default('/usr/bin/pihole-FTL')]
+         + (['--check'] if ansible_check_mode else []) }}
+    stdin: "{{ pihole_desired_settings | to_json }}"
+  register: pihole_settings_result
+  check_mode: false
+  changed_when: (pihole_settings_result.stdout | from_json).changed
+  when: pihole_config_stat.stat.exists

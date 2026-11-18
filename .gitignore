@@ -9,3 +9,7 @@ caddy/config/
 # Certificates
 *.crt
 *.key
+
+# Python caches from provisioning and tests
+__pycache__/
+*.py[cod]

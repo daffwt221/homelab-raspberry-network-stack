@@ -1,0 +1,79 @@
+# This runs before Docker, including during --tags photo-backup.
+- name: Require an explicit NVMe UUID
+  ansible.builtin.assert:
+    that:
+      - nvme_uuid is defined
+      - nvme_uuid | default('') is match('^[0-9a-fA-F-]{36}$')
+    fail_msg: Set nvme_uuid to the ext4 UUID reported by sudo blkid; no disk is formatted.
+
+- name: Identify the configured NVMe filesystem
+  ansible.builtin.command:
+    argv: [blkid, -U, "{{ nvme_uuid }}"]
+  register: photo_nvme_device
+  changed_when: false
+  check_mode: false
+
+- name: Confirm ext4 on the configured device
+  ansible.builtin.command:
+    argv: [blkid, -s, TYPE, -o, value, "{{ photo_nvme_device.stdout | trim }}"]
+  register: photo_nvme_type
+  changed_when: false
+  check_mode: false
+
+- name: Inspect the mount currently covering the NVMe directory
+  ansible.builtin.command: findmnt -n -o UUID -T /mnt/nvme
+  register: photo_nvme_current
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Check whether NVMe is already mounted
+  ansible.builtin.command: mountpoint -q /mnt/nvme
+  register: photo_nvme_mounted
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Inspect an unmounted mount directory without hiding existing files
+  ansible.builtin.command:
+    argv: [python3, -c, "import os; p='/mnt/nvme'; assert not os.path.islink(p); assert not os.path.exists(p) or (os.path.isdir(p) and not os.listdir(p)), 'Unmounted /mnt/nvme is not empty'"]
+  changed_when: false
+  check_mode: false
+  when: photo_nvme_mounted.rc != 0
+
+- name: Reject a different mounted device or filesystem
+  ansible.builtin.assert:
+    that:
+      - photo_nvme_type.stdout | trim == 'ext4'
+      - photo_nvme_mounted.rc != 0 or photo_nvme_current.stdout | trim == nvme_uuid
+
+- name: Persist and mount the existing NVMe filesystem by UUID
+  ansible.posix.mount:
+    path: /mnt/nvme
+    src: "UUID={{ nvme_uuid }}"
+    fstype: ext4
+    opts: defaults,noatime,nofail,x-systemd.device-timeout=30s
+    state: mounted
+    backup: true
+
+- name: Ensure Docker requires NVMe even when the boot mount fails
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: '0755'
+
+- name: Order Docker after persistent NVMe storage
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker.service.d/50-nvme-storage.conf
+    mode: '0644'
+    content: |
+      [Unit]
+      RequiresMountsFor=/mnt/nvme
+      Requires=mnt-nvme.mount
+      After=mnt-nvme.mount
+  register: photo_storage_order
+
+- name: Reload the mount and Docker dependencies
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: photo_storage_order.changed
