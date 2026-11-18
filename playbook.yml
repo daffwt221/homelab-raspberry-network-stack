@@ -82,6 +82,7 @@
         command: tailscale ip -4
         register: tailscale_ipv4
         changed_when: false
+        check_mode: false
         tags:
             - always
 
@@ -284,6 +285,11 @@
         command: docker compose -f {{ stack_compose_file }} up -d
         args:
             chdir: "{{ stack_path }}"
+
+      - name: Install Pi-hole and configure local DNS
+        ansible.builtin.import_tasks: ops/pihole/tasks.yml
+        tags:
+            - pihole
 
   handlers:
       - name: Reexec systemd

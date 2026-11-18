@@ -1,0 +1,128 @@
+- name: Explain Unbound handling in check mode
+  ansible.builtin.debug:
+    msg: Unbound installation, configuration and service changes are skipped in check mode.
+  when: ansible_check_mode
+
+- name: Provision the local recursive Unbound resolver
+  when: not ansible_check_mode
+  block:
+    - name: Install Unbound and DNS tools
+      ansible.builtin.apt:
+        name:
+          - unbound
+          - dns-root-data
+          - dnsutils
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create the Unbound configuration directory
+      ansible.builtin.file:
+        path: /etc/unbound/unbound.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # A restored numeric UID can now belong to another account on the fresh OS.
+    - name: Give Unbound its writable DNSSEC state directory
+      ansible.builtin.file:
+        path: /var/lib/unbound
+        state: directory
+        owner: unbound
+        group: unbound
+        mode: '0755'
+      register: homelab_unbound_storage
+
+    - name: Bootstrap the root trust anchor only when absent
+      ansible.builtin.copy:
+        src: /usr/share/dns/root.key
+        dest: /var/lib/unbound/root.key
+        remote_src: true
+        force: false
+        owner: unbound
+        group: unbound
+        mode: '0644'
+
+    - name: Preserve the recovered root key with the correct service ownership
+      ansible.builtin.file:
+        path: /var/lib/unbound/root.key
+        state: file
+        owner: unbound
+        group: unbound
+        mode: '0644'
+      register: homelab_unbound_anchor
+
+    # Match the original file name; another name would leave two server blocks behind.
+    - name: Install the Unbound settings recovered from the SD backup
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/ops/pihole/templates/unbound.conf.j2"
+        dest: /etc/unbound/unbound.conf.d/pihole.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+        validate: /usr/sbin/unbound-checkconf %s
+      register: homelab_unbound_config
+
+    - name: Gather service names for optional resolvconf integration
+      ansible.builtin.service_facts:
+
+    - name: Disable Unbound changes to the system resolver
+      ansible.builtin.systemd:
+        name: unbound-resolvconf.service
+        state: stopped
+        enabled: false
+      when: "'unbound-resolvconf.service' in ansible_facts.services"
+
+    - name: Inspect optional resolvconf settings
+      ansible.builtin.stat:
+        path: /etc/resolvconf.conf
+      register: homelab_resolvconf_file
+
+    - name: Stop resolvconf generating a circular upstream configuration
+      ansible.builtin.lineinfile:
+        path: /etc/resolvconf.conf
+        regexp: '^\s*unbound_conf='
+        state: absent
+        backup: true
+      when: homelab_resolvconf_file.stat.exists
+
+    - name: Remove the generated forwarding configuration
+      ansible.builtin.file:
+        path: /etc/unbound/unbound.conf.d/resolvconf_resolvers.conf
+        state: absent
+      register: homelab_unbound_resolvconf
+
+    - name: Validate the complete Unbound configuration
+      ansible.builtin.command: /usr/sbin/unbound-checkconf
+      changed_when: false
+
+    - name: Enable the local resolver before pointing Pi-hole at it
+      ansible.builtin.systemd:
+        name: unbound
+        enabled: true
+        state: >-
+          {{ 'restarted' if homelab_unbound_config.changed or
+             homelab_unbound_resolvconf.changed or homelab_unbound_storage.changed or
+             homelab_unbound_anchor.changed else 'started' }}
+
+    - name: Require successful recursive resolution through Unbound
+      ansible.builtin.command:
+        argv:
+          - dig
+          - '@127.0.0.1'
+          - -p
+          - "{{ unbound_port | default(5335) | string }}"
+          - example.com
+          - A
+          - +time=5
+          - +tries=1
+      register: homelab_unbound_probe
+      changed_when: false
+      retries: 3
+      delay: 3
+      until:
+        - homelab_unbound_probe.rc == 0
+        - "'status: NOERROR' in homelab_unbound_probe.stdout"
+        - "'ANSWER: 0' not in homelab_unbound_probe.stdout"

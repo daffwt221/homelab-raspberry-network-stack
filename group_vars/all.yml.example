@@ -13,3 +13,30 @@ tailscale_authkey: XXXXX
 tailscale_hostname: homelab-pi
 tailscale_advertise_routes: 192.168.1.0/24
 tailscale_advertise_exit_node: true
+
+pihole_dns_names:
+  - 4get.home.arpa
+  - grafana.home.arpa
+  - portainer.home.arpa
+  - prometheus.home.arpa
+  - node-exporter.home.arpa
+  - pihole.home.arpa
+
+# Run the official installer again only when explicitly requested or incomplete.
+pihole_repair_installation: false
+pihole_installer_version: master
+# DNS names above resolve to the dynamically discovered Tailscale IPv4 address.
+# pihole_dns_ipv4: 100.70.214.76
+
+# DNS defaults reproduce the original SD; override only when intentionally changing it.
+unbound_port: 5335
+pihole_upstreams:
+  - 127.0.0.1#5335
+pihole_dns_interface: eth0
+pihole_listening_mode: ALL
+pihole_web_port: 8081o
+pihole_web_probe_port: 8081
+pihole_web_theme: default-darker
+pihole_adlists:
+  - https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+# pihole_web_headers can override the recovered HTTP headers (ops/pihole/defaults.yml).

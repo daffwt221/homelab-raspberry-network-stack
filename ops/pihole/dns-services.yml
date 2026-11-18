@@ -1,0 +1,45 @@
+- name: Activate Pi-hole after its upstream and settings are ready
+  ansible.builtin.systemd:
+    name: pihole-FTL
+    enabled: true
+    state: "{{ 'restarted' if pihole_settings_result.changed or pihole_install_required | bool else 'started' }}"
+  when: not ansible_check_mode
+
+- name: Inspect the installed gravity database
+  ansible.builtin.stat:
+    path: "{{ pihole_gravity_db | default('/etc/pihole/gravity.db') }}"
+  register: pihole_gravity_stat
+
+- name: Require an installed gravity database
+  ansible.builtin.assert:
+    that:
+      - pihole_gravity_stat.stat.exists
+    fail_msg: The Pi-hole installer must create gravity.db before adlists are managed.
+  when: not ansible_check_mode
+
+# Register required deny-list URLs and their default-group assignments. Preserve
+# extra administrator lists, exceptions, clients and groups. Never replace the DB.
+- name: Ensure the configured blocklists are enabled
+  ansible.builtin.command:
+    argv: >-
+      {{ ['python3', playbook_dir ~ '/ops/pihole/manage.py', 'adlists',
+          '--path', pihole_gravity_db | default('/etc/pihole/gravity.db')]
+         + (['--check'] if ansible_check_mode else []) }}
+    stdin: "{{ pihole_adlists | default(pihole_defaults.adlists) | to_json }}"
+  register: pihole_adlist_result
+  check_mode: false
+  changed_when: (pihole_adlist_result.stdout | from_json).changed
+  when: pihole_gravity_stat.stat.exists
+
+- name: Build gravity after a list change or when its tables are empty
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/pihole
+      - -g
+  when:
+    - not ansible_check_mode
+    - (pihole_adlist_result.stdout | from_json).gravity_required
+  changed_when: true
+
+- name: Validate the running DNS chain
+  ansible.builtin.import_tasks: verify.yml
