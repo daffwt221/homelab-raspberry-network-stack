@@ -322,7 +322,24 @@ Tailscale interface.
 
 Metrics pipeline: `Node Exporter → Prometheus → Grafana`
 
-Prometheus scrapes host-level metrics from Node Exporter at regular intervals. Grafana provides dashboards for tracking resource usage and identifying bottlenecks on constrained hardware.
+Prometheus scrapes itself at `http://localhost:9090/metrics` and Node Exporter
+at `http://node-exporter:9100/metrics` over the Compose network. The Caddy
+`home.arpa` URLs serve HTTPS clients using the Tailscale and Pi-hole DNS path.
+Grafana queries Prometheus and displays the host metrics.
+
+If the `node` target is down, run these checks on the Raspberry Pi from the
+deployment directory (the default is `/mnt/nvme/homelab-raspberry-network-stack`).
+
+```bash
+docker compose exec prometheus wget -qO /dev/null -S http://node-exporter:9100/metrics
+docker compose exec prometheus promtool check config /etc/prometheus/prometheus.yml
+```
+
+From another directory, pass `-f /path/to/docker-compose.yml` after
+`docker compose`. After editing the mounted configuration and passing
+validation, run `docker compose restart prometheus`. In Prometheus Targets,
+confirm that both jobs are UP, then query `node_uname_info{job="node"}` in
+Grafana Explore.
 
 Basic Prometheus alert rules are included for unreachable Node Exporter, high memory usage, swap usage, low disk space, and sustained load.
 
