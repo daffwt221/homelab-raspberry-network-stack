@@ -12,6 +12,7 @@ scrape_configs:
           - localhost:9090
 
   - job_name: node
+    scheme: http
     static_configs:
       - targets:
           - node-exporter:9100
