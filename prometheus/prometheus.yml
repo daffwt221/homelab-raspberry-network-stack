@@ -9,9 +9,10 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets:
-          - prometheus:9090
+          - localhost:9090
 
   - job_name: node
+    scheme: http
     static_configs:
       - targets:
           - node-exporter:9100

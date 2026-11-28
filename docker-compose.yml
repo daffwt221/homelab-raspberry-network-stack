@@ -70,9 +70,11 @@ services:
       - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:9100:9100"
 
   grafana:
-    image: grafana/grafana:13.2.1-slim
+    image: grafana/grafana:13.2.1
     container_name: grafana
     restart: unless-stopped
+    environment:
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
     ports:
       - "${SERVICE_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
@@ -84,7 +86,7 @@ services:
       timeout: 5s
       retries: 3
       # The Pi 2 needed over three minutes to load the Prometheus plugin.
-      start_period: 4m
+      start_period: 5m
 
   portainer:
     image: portainer/portainer-ce:2.39.7-linux-arm-alpine
